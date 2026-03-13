@@ -4,6 +4,7 @@ defmodule SymphonyElixir.Config do
   """
 
   alias SymphonyElixir.Config.Schema
+  alias SymphonyElixir.Linear.Issue
   alias SymphonyElixir.Workflow
 
   @default_prompt_template """
@@ -69,6 +70,22 @@ defmodule SymphonyElixir.Config do
 
       {:error, reason} ->
         raise ArgumentError, message: "Invalid codex turn sandbox policy: #{inspect(reason)}"
+    end
+  end
+
+  @spec agent_config_for_issue(Issue.t()) :: Schema.Codex.t()
+  def agent_config_for_issue(%Issue{labels: labels}) do
+    settings = settings!()
+    routing = settings.routing
+
+    agent_name =
+      Enum.find_value(labels, routing.default_agent, fn label ->
+        Map.get(routing.by_label, label)
+      end)
+
+    case agent_name do
+      "codex" -> settings.codex
+      name -> Map.get(settings.agents, name, settings.codex)
     end
   end
 
