@@ -308,7 +308,7 @@ defmodule SymphonyElixir.TestSupport do
 
     parts =
       if routing_default do
-        parts ++ ["  default: #{yaml_value(routing_default)}"]
+        parts ++ ["  default_agent: #{yaml_value(routing_default)}"]
       else
         parts
       end

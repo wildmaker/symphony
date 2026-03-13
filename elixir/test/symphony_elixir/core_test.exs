@@ -1576,6 +1576,102 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
+  test "agent_config_for_issue returns codex config when no routing configured" do
+    issue = %Issue{
+      id: "issue-no-routing",
+      identifier: "MT-300",
+      title: "No routing configured",
+      description: "Should fall back to codex",
+      state: "Todo",
+      labels: ["backend"]
+    }
+
+    agent_config = Config.agent_config_for_issue(issue)
+    codex_config = Config.settings!().codex
+
+    assert agent_config.command == codex_config.command
+    assert agent_config.approval_policy == codex_config.approval_policy
+    assert agent_config.thread_sandbox == codex_config.thread_sandbox
+  end
+
+  test "agent_config_for_issue returns cursor config when label matches" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agents: %{cursor: [command: "cursor-symphony-bridge", approval_policy: "never", thread_sandbox: "danger-full-access"]},
+      routing_by_label: %{"use-cursor" => "cursor"}
+    )
+
+    issue = %Issue{
+      id: "issue-cursor-label",
+      identifier: "MT-301",
+      title: "Route to cursor",
+      description: "Label matches cursor agent",
+      state: "Todo",
+      labels: ["use-cursor"]
+    }
+
+    agent_config = Config.agent_config_for_issue(issue)
+    assert agent_config.command == "cursor-symphony-bridge"
+  end
+
+  test "agent_config_for_issue falls back to codex when label maps to nonexistent agent" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      routing_by_label: %{"use-unknown" => "nonexistent"}
+    )
+
+    issue = %Issue{
+      id: "issue-unknown-agent",
+      identifier: "MT-302",
+      title: "Unknown agent fallback",
+      description: "Agent name not in agents map",
+      state: "Todo",
+      labels: ["use-unknown"]
+    }
+
+    agent_config = Config.agent_config_for_issue(issue)
+    codex_config = Config.settings!().codex
+
+    assert agent_config.command == codex_config.command
+  end
+
+  test "agent_config_for_issue uses routing.default when no label match" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agents: %{cursor: [command: "cursor-symphony-bridge"]},
+      routing_default: "cursor",
+      routing_by_label: %{"special" => "cursor"}
+    )
+
+    issue = %Issue{
+      id: "issue-default-route",
+      identifier: "MT-303",
+      title: "Default agent route",
+      description: "No label matches, uses default",
+      state: "Todo",
+      labels: ["unrelated"]
+    }
+
+    agent_config = Config.agent_config_for_issue(issue)
+    assert agent_config.command == "cursor-symphony-bridge"
+  end
+
+  test "agent_config_for_issue uses first matching label" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agents: %{cursor: [command: "cursor-symphony-bridge"]},
+      routing_by_label: %{"use-cursor" => "cursor"}
+    )
+
+    issue = %Issue{
+      id: "issue-first-label",
+      identifier: "MT-304",
+      title: "First label match",
+      description: "Second label matches",
+      state: "Todo",
+      labels: ["no-match", "use-cursor"]
+    }
+
+    agent_config = Config.agent_config_for_issue(issue)
+    assert agent_config.command == "cursor-symphony-bridge"
+  end
+
   test "app server startup payload uses configurable approval and sandbox settings from workflow config" do
     test_root =
       Path.join(
