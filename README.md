@@ -1,41 +1,93 @@
-# Symphony
+# Symphony (Instant-AI Fork)
 
-Fork of [openai/symphony](https://github.com/openai/symphony) with better defaults for production use and a complete onboarding flow. Push tickets to a Linear board, agents ship the code.
+This repository is a production-focused fork of
+[openai/symphony](https://github.com/openai/symphony). It runs a backlog-driven
+agent loop with Linear as the tracker and Codex as the coding agent.
 
 [![Symphony demo video preview](.github/media/symphony-demo-poster.jpg)](.github/media/symphony-demo.mp4)
 
-## Quick start
+## What this repo contains
 
-If you have an AI coding agent, one command:
+- `elixir/`: core Symphony runtime (Elixir/OTP + optional Phoenix dashboard)
+- `SPEC.md`: high-level product and architecture specification
+- `scripts/cursor-symphony-bridge`: Cursor CLI protocol bridge
+- `.agents/` and `.codex/`: local agent workflows and reusable skills
 
+## Highlights in this fork
+
+- Linear GraphQL usage optimized for low token overhead
+- Git/PR-centric workflow defaults that work with real repositories
+- Built-in conventions for workpad updates, PR feedback sweeps, and merge flow
+- Additional automation skills for setup, push/pull/land, and issue handling
+
+## Prerequisites
+
+- Git
+- [mise](https://mise.jdx.dev/) for Elixir/Erlang toolchain management
+- Linear personal API key (`LINEAR_API_KEY`) for tracker integration
+- `codex` CLI available in your shell environment
+
+## Quick start (local)
+
+```bash
+git clone https://github.com/wildmaker/symphony
+cd symphony/elixir
+mise trust
+mise install
+mise exec -- mix setup
+mise exec -- mix build
+mise exec -- ./bin/symphony ./WORKFLOW.md
 ```
-npx skills add odysseus0/symphony -s symphony-setup -y
+
+## Configure your workflow
+
+1. Copy `elixir/WORKFLOW.md` to your target repository.
+2. Set the Linear project slug in YAML frontmatter (`tracker.project_slug`).
+3. Configure `hooks.after_create` to clone and bootstrap your target repo.
+4. Export `LINEAR_API_KEY` before launching Symphony.
+5. Ensure Linear workflow contains the states used by this flow:
+   `Todo`, `In Progress`, `Human Review`, `Rework`, `Merging`, `Done`.
+
+## Run tests
+
+```bash
+cd elixir
+make all
 ```
 
-Then ask your agent to set up Symphony for your repo.
+Optional live end-to-end test (creates disposable Linear resources and launches a
+real Codex app-server turn):
 
-## How it works
+```bash
+cd elixir
+export LINEAR_API_KEY=...
+make e2e
+```
 
-Symphony polls a Linear project for active tickets. Each ticket gets an isolated workspace clone and a Codex agent. The agent reads the ticket, writes a plan, implements, validates, and opens a PR. You review PRs and move tickets through states — the agents handle the rest.
+## Observability dashboard
 
-The state machine lives in `WORKFLOW.md` — a markdown file with YAML frontmatter for config and a prompt body that defines agent behavior. Hot-reloads in under a second, no restart needed.
+Start Symphony with a web dashboard:
 
-## What's different from upstream
+```bash
+cd elixir
+mise exec -- ./bin/symphony ./WORKFLOW.md --port 4000
+```
 
-- **Cheaper Linear calls** — agents no longer burn tokens on schema introspection before every GraphQL call, and workpad sync is a single dynamic tool instead of a hand-rolled mutation
-- **Correct sandbox** — the workflow is git + GitHub PR centric. Upstream's default sandbox blocks `.git/` writes, which silently breaks the entire flow. Fixed.
-- **Media uploads via Linear** — upstream references a GitHub media upload skill that doesn't ship. The workflow and Linear skill now use Linear's native `fileUpload` mutation for screenshots and recordings
-- **Setup skill** — auto-detects your repo, installs worker skills, creates Linear workflow states, and verifies everything before launch
+Then open `http://localhost:4000`.
 
-## Manual setup
+## Security notes
 
-1. Build: `git clone https://github.com/odysseus0/symphony && cd symphony/elixir && mise trust && mise install && mise exec -- mix setup && mise exec -- mix build`
-2. Install skills: `npx skills add odysseus0/symphony -a codex -s linear land commit push pull debug --copy -y` and copy `elixir/WORKFLOW.md` to your repo
-3. In WORKFLOW.md, set `tracker.project_slug` and `hooks.after_create` (clone your repo + setup commands)
-4. Add **Rework**, **Human Review**, **Merging** as custom states in Linear (Team Settings → Workflow)
-5. Commit, push, then: `mise exec -- ./bin/symphony /path/to/your-repo/WORKFLOW.md`
+- Never commit `.env` files or raw tokens.
+- Prefer environment variables for all secrets (`LINEAR_API_KEY` and other
+  service credentials).
+- Use disposable test projects/issues when running `make e2e`.
 
-**[Getting Started with OpenAI Symphony](https://x.com/odysseus0z/status/2031850264240800131)** — full walkthrough with context on why these defaults matter.
+## Documentation
+
+- Runtime details: [elixir/README.md](elixir/README.md)
+- Workflow contract example: [elixir/WORKFLOW.md](elixir/WORKFLOW.md)
+- Logging details: [elixir/docs/logging.md](elixir/docs/logging.md)
+- Token accounting notes: [elixir/docs/token_accounting.md](elixir/docs/token_accounting.md)
 
 ## License
 
