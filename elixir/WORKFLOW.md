@@ -41,7 +41,7 @@ agents:
     turn_sandbox_policy:
       type: dangerFullAccess
   cursor:
-    command: cursor-symphony-bridge
+    command: cursor-symphony-bridge --model gpt-5.4
     approval_policy: never
     thread_sandbox: danger-full-access
 routing:
