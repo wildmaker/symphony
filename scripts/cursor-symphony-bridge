@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+"""
+cursor-symphony-bridge — Protocol adapter between Symphony's JSON-RPC
+app-server interface and the Cursor CLI.
+
+Runs as a long-lived subprocess. Reads newline-delimited JSON-RPC from
+stdin, responds on stdout. Translates turn/start prompts into
+`cursor` CLI invocations and emits turn/completed when done.
+
+Usage (from WORKFLOW.md agents section):
+  agents:
+    cursor:
+      command: cursor-symphony-bridge
+"""
+
+import json
+import os
+import subprocess
+import sys
+import uuid
+
+
+def send_response(payload: dict) -> None:
+    """Write a JSON-RPC response/notification to stdout."""
+    line = json.dumps(payload, separators=(",", ":"))
+    sys.stdout.write(line + "\n")
+    sys.stdout.flush()
+
+
+def handle_initialize(msg: dict) -> None:
+    """Respond to the initialize handshake."""
+    send_response({"id": msg["id"], "result": {}})
+
+
+def handle_thread_start(msg: dict) -> None:
+    """Respond to thread/start with a generated thread ID."""
+    thread_id = f"cursor-thread-{uuid.uuid4().hex[:12]}"
+    send_response({
+        "id": msg["id"],
+        "result": {"thread": {"id": thread_id}},
+    })
+
+
+def handle_turn_start(msg: dict) -> None:
+    """Execute a cursor CLI invocation for the turn prompt."""
+    params = msg.get("params", {})
+    turn_id = f"cursor-turn-{uuid.uuid4().hex[:12]}"
+
+    # Extract the prompt text from the input array.
+    prompt = ""
+    for item in params.get("input", []):
+        if isinstance(item, dict) and item.get("type") == "text":
+            prompt += item.get("text", "")
+
+    cwd = params.get("cwd", os.getcwd())
+
+    # Acknowledge the turn start.
+    send_response({
+        "id": msg["id"],
+        "result": {"turn": {"id": turn_id}},
+    })
+
+    # Run the cursor CLI.
+    try:
+        result = subprocess.run(
+            ["cursor", "-p", prompt, "--folder", cwd],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=3600,
+        )
+
+        if result.returncode == 0:
+            send_response({"method": "turn/completed"})
+        else:
+            stderr_snippet = (result.stderr or "").strip()[:500]
+            send_response({
+                "method": "turn/failed",
+                "params": {
+                    "error": f"cursor exited with code {result.returncode}: {stderr_snippet}",
+                },
+            })
+    except FileNotFoundError:
+        send_response({
+            "method": "turn/failed",
+            "params": {"error": "cursor CLI not found on PATH"},
+        })
+    except subprocess.TimeoutExpired:
+        send_response({
+            "method": "turn/failed",
+            "params": {"error": "cursor CLI timed out after 3600s"},
+        })
+    except Exception as exc:
+        send_response({
+            "method": "turn/failed",
+            "params": {"error": f"cursor invocation failed: {exc}"},
+        })
+
+
+def main() -> None:
+    """Main read-eval loop: read JSON-RPC lines from stdin."""
+    for raw_line in sys.stdin:
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        try:
+            msg = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+
+        method = msg.get("method")
+
+        if method == "initialize":
+            handle_initialize(msg)
+        elif method == "initialized":
+            # Notification — no response required.
+            pass
+        elif method == "thread/start":
+            handle_thread_start(msg)
+        elif method == "turn/start":
+            handle_turn_start(msg)
+        else:
+            # Unknown method — ignore (notifications) or return error.
+            if "id" in msg:
+                send_response({
+                    "id": msg["id"],
+                    "error": {
+                        "code": -32601,
+                        "message": f"Method not found: {method}",
+                    },
+                })
+
+
+if __name__ == "__main__":
+    main()
