@@ -138,7 +138,10 @@ class ACPClient:
 
     def new_session(self, cwd: str) -> str:
         """Create a new ACP session.  Returns the ``sessionId``."""
-        result = self._send_request("session/new", {"cwd": cwd})
+        result = self._send_request("session/new", {
+            "cwd": cwd,
+            "mcpServers": [],
+        })
         session_id = result.get("sessionId") if isinstance(result, dict) else None
         if not session_id:
             raise RuntimeError(f"session/new did not return a sessionId: {result!r}")
