@@ -206,13 +206,29 @@ defmodule SymphonyElixir.Codex.AppServer do
     workspace_scripts_path = Path.join(workspace, "scripts")
     current_path = System.get_env("PATH") || ""
 
+    symphony_scripts_path = symphony_scripts_path()
+
+    path_parts =
+      [workspace_scripts_path, symphony_scripts_path]
+      |> Enum.reject(&is_nil/1)
+      |> Enum.filter(&File.dir?/1)
+
     resolved_path =
-      case current_path do
-        "" -> workspace_scripts_path
-        _ -> workspace_scripts_path <> ":" <> current_path
+      case {path_parts, current_path} do
+        {[], ""} -> ""
+        {parts, ""} -> Enum.join(parts, ":")
+        {[], path} -> path
+        {parts, path} -> Enum.join(parts, ":") <> ":" <> path
       end
 
     [{~c"PATH", String.to_charlist(resolved_path)}]
+  end
+
+  defp symphony_scripts_path do
+    case Application.get_env(:symphony_elixir, :symphony_root) do
+      root when is_binary(root) -> Path.join(root, "scripts")
+      _ -> nil
+    end
   end
 
   defp port_metadata(port) when is_port(port) do
