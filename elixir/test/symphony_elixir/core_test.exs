@@ -1747,6 +1747,132 @@ defmodule SymphonyElixir.CoreTest do
     refute Map.has_key?(settings.agents, "invalid_agent")
   end
 
+  test "agent_config_for_issue returns prompt_template when configured" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agents: %{
+        cursor: [
+          command: "cursor-symphony-bridge",
+          prompt_template: "Custom prompt for cursor: {{ issue.identifier }}"
+        ]
+      },
+      routing_by_label: %{"use-cursor" => "cursor"}
+    )
+
+    issue = %Issue{
+      id: "issue-prompt-template",
+      identifier: "MT-310",
+      title: "Per-agent prompt",
+      description: "Agent has custom prompt",
+      state: "Todo",
+      labels: ["use-cursor"]
+    }
+
+    agent_config = Config.agent_config_for_issue(issue)
+    assert agent_config.command == "cursor-symphony-bridge"
+    assert agent_config.prompt_template == "Custom prompt for cursor: {{ issue.identifier }}"
+  end
+
+  test "agent_config_for_issue returns nil prompt_template when not configured" do
+    issue = %Issue{
+      id: "issue-no-prompt-template",
+      identifier: "MT-311",
+      title: "Default prompt",
+      description: "No custom prompt",
+      state: "Todo",
+      labels: []
+    }
+
+    agent_config = Config.agent_config_for_issue(issue)
+    assert is_nil(agent_config.prompt_template)
+  end
+
+  test "prompt builder uses per-agent prompt_template when provided in opts" do
+    workflow_prompt = "Default workflow prompt for {{ issue.identifier }}"
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
+
+    issue = %Issue{
+      identifier: "MT-312",
+      title: "Per-agent prompt test",
+      description: "Should use agent prompt",
+      state: "Todo",
+      url: "https://example.org/issues/MT-312",
+      labels: []
+    }
+
+    agent_config = %Config.Schema.Codex{
+      command: "cursor-symphony-bridge",
+      prompt_template: "Agent-specific prompt for {{ issue.identifier }} title={{ issue.title }}"
+    }
+
+    prompt = PromptBuilder.build_prompt(issue, agent_config: agent_config)
+    assert prompt == "Agent-specific prompt for MT-312 title=Per-agent prompt test"
+  end
+
+  test "prompt builder falls back to workflow prompt when agent has no prompt_template" do
+    workflow_prompt = "Workflow prompt for {{ issue.identifier }}"
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
+
+    issue = %Issue{
+      identifier: "MT-313",
+      title: "Fallback prompt test",
+      description: "Should use workflow prompt",
+      state: "Todo",
+      url: "https://example.org/issues/MT-313",
+      labels: []
+    }
+
+    agent_config = %Config.Schema.Codex{
+      command: "codex app-server",
+      prompt_template: nil
+    }
+
+    prompt = PromptBuilder.build_prompt(issue, agent_config: agent_config)
+    assert prompt == "Workflow prompt for MT-313"
+  end
+
+  test "prompt builder falls back to workflow prompt when agent prompt_template is empty string" do
+    workflow_prompt = "Workflow prompt for {{ issue.identifier }}"
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
+
+    issue = %Issue{
+      identifier: "MT-314",
+      title: "Empty prompt test",
+      description: "Should use workflow prompt",
+      state: "Todo",
+      url: "https://example.org/issues/MT-314",
+      labels: []
+    }
+
+    agent_config = %Config.Schema.Codex{
+      command: "codex app-server",
+      prompt_template: ""
+    }
+
+    prompt = PromptBuilder.build_prompt(issue, agent_config: agent_config)
+    assert prompt == "Workflow prompt for MT-314"
+  end
+
+  test "per-agent prompt_template supports attempt variable" do
+    write_workflow_file!(Workflow.workflow_file_path(), prompt: "default")
+
+    issue = %Issue{
+      identifier: "MT-315",
+      title: "Retry prompt",
+      description: "Agent prompt with attempt",
+      state: "In Progress",
+      url: "https://example.org/issues/MT-315",
+      labels: []
+    }
+
+    agent_config = %Config.Schema.Codex{
+      command: "codex app-server",
+      prompt_template: ~S({% if attempt %}Retry #{{ attempt }}{% endif %} {{ issue.identifier }})
+    }
+
+    prompt = PromptBuilder.build_prompt(issue, agent_config: agent_config, attempt: 3)
+    assert prompt == "Retry #3 MT-315"
+  end
+
   test "agent_config_for_issue uses first matching label" do
     write_workflow_file!(Workflow.workflow_file_path(),
       agents: %{cursor: [command: "cursor-symphony-bridge"]},
