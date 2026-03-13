@@ -19,6 +19,8 @@ defmodule SymphonyElixir.CLI do
 
   @spec main([String.t()]) :: no_return()
   def main(args) do
+    store_symphony_root()
+
     case evaluate(args) do
       :ok ->
         wait_for_shutdown()
@@ -167,6 +169,20 @@ defmodule SymphonyElixir.CLI do
   defp set_server_port_override(port) when is_integer(port) and port >= 0 do
     Application.put_env(:symphony_elixir, :server_port_override, port)
     :ok
+  end
+
+  defp store_symphony_root do
+    script_name = :escript.script_name() |> to_string()
+
+    if script_name != "" and not String.starts_with?(script_name, "-") do
+      root =
+        script_name
+        |> Path.expand()
+        |> Path.dirname()
+        |> Path.dirname()
+
+      Application.put_env(:symphony_elixir, :symphony_root, root)
+    end
   end
 
   @spec wait_for_shutdown() :: no_return()
