@@ -142,16 +142,29 @@ agents:
     turn_sandbox_policy:
       type: dangerFullAccess
   cursor:
-    command: cursor-symphony-bridge
+    command: cursor-symphony-bridge --model opus-4.6
+    approval_policy: never
+    thread_sandbox: danger-full-access
+  cursor-gpt-5-3-codex:
+    command: cursor-symphony-bridge --model gpt-5.3-codex
     approval_policy: never
     thread_sandbox: danger-full-access
 routing:
   default_agent: codex
   by_label:
+    model-codex: codex
+    model-cursor-opus: cursor
+    model-cursor-gpt-5-3-codex: cursor-gpt-5-3-codex
     use-cursor: cursor
 ```
 
-With this configuration, tickets labeled `use-cursor` in Linear are dispatched to the Cursor agent. All others use Codex by default.
+With this configuration, users can choose model/backend from Linear labels:
+- `model-codex` -> Codex (`gpt-5.3-codex`)
+- `model-cursor-opus` -> Cursor (`opus-4.6`)
+- `model-cursor-gpt-5-3-codex` -> Cursor (`gpt-5.3-codex`)
+- `use-cursor` -> Cursor (`opus-4.6`, compatibility label)
+
+If no model label is present, Symphony uses `default_agent: codex`.
 
 The WORKFLOW.md prompt already includes a "Linear access" section that tells the agent to fall back to `symphony-linear-cli` (a shell command) when the native `linear_graphql` tool is unavailable. This is essential for the Cursor agent, which does not receive Symphony's dynamic tools.
 
@@ -216,7 +229,7 @@ Have the user push a test ticket to Todo in Linear. Watch for the first worker t
 - [ ] `.agents/skills/` and `WORKFLOW.md` pushed to remote?
 - [ ] Custom Linear states (Rework, Human Review, Merging) added?
 
-To verify the Cursor agent specifically, add the `use-cursor` label to a test ticket. Extra checklist:
+To verify Cursor routing specifically, add one of `model-cursor-opus`, `model-cursor-gpt-5-3-codex`, or `use-cursor` to a test ticket. Extra checklist:
 
 - [ ] `cursor-symphony-bridge` on PATH? (`which cursor-symphony-bridge`)
 - [ ] `symphony-linear-cli` on PATH? (`which symphony-linear-cli`)

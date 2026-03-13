@@ -24,23 +24,32 @@ The state machine lives in `WORKFLOW.md` — a markdown file with YAML frontmatt
 
 Symphony supports routing issues to different coding agents via label-based routing. In addition to the default Codex agent, Symphony includes a protocol bridge for **Cursor CLI** using the [Agent Client Protocol (ACP)](https://agentclientprotocol.com/). The `cursor-symphony-bridge` script translates between Symphony's app-server protocol and ACP's session-based JSON-RPC 2.0 protocol, enabling persistent sessions, streaming updates, and automatic permission handling.
 
-To route issues to Cursor, configure agents and routing in your `WORKFLOW.md`:
+To let users pick a model directly from Linear labels, configure agents and routing in your `WORKFLOW.md`:
 
 ```yaml
 agents:
+  codex:
+    command: codex --config shell_environment_policy.inherit=all --config model_reasoning_effort=xhigh --model gpt-5.3-codex app-server
   cursor:
-    command: cursor-symphony-bridge --model gpt-5.4
+    command: cursor-symphony-bridge --model opus-4.6
+  cursor-gpt-5-3-codex:
+    command: cursor-symphony-bridge --model gpt-5.3-codex
 routing:
-  default_agent: cursor
-  # or route by label:
+  default_agent: codex
   by_label:
+    model-codex: codex
+    model-cursor-opus: cursor
+    model-cursor-gpt-5-3-codex: cursor-gpt-5-3-codex
     use-cursor: cursor
 ```
 
-The bridge forwards `--model` to the Cursor CLI at startup, so you can pin a
-specific model per agent definition. If you prefer an environment default,
-`CURSOR_MODEL=gpt-5.4` is also supported, but an explicit `--model` in
-`command:` takes precedence.
+Default mapping in this template:
+- `model-codex` -> Codex agent (`gpt-5.3-codex`)
+- `model-cursor-opus` -> Cursor agent (`opus-4.6`)
+- `model-cursor-gpt-5-3-codex` -> Cursor agent (`gpt-5.3-codex`)
+- `use-cursor` -> Cursor agent (`opus-4.6`, compatibility label)
+
+The bridge forwards `--model` to the Cursor CLI at startup, so you can pin a specific model per agent definition. If you prefer an environment default, `CURSOR_MODEL` is also supported, but an explicit `--model` in `command:` takes precedence.
 
 Requires the Cursor CLI (`agent`) on PATH and `CURSOR_API_KEY` set in the
 environment.

@@ -41,12 +41,19 @@ agents:
     turn_sandbox_policy:
       type: dangerFullAccess
   cursor:
-    command: cursor-symphony-bridge --model gpt-5.4
+    command: cursor-symphony-bridge --model opus-4.6
+    approval_policy: never
+    thread_sandbox: danger-full-access
+  cursor-gpt-5-3-codex:
+    command: cursor-symphony-bridge --model gpt-5.3-codex
     approval_policy: never
     thread_sandbox: danger-full-access
 routing:
   default_agent: codex
   by_label:
+    model-codex: codex
+    model-cursor-opus: cursor
+    model-cursor-gpt-5-3-codex: cursor-gpt-5-3-codex
     use-cursor: cursor
 ---
 
