@@ -137,6 +137,9 @@ defmodule SymphonyElixir.Config.Schema do
     import Ecto.Changeset
 
     @primary_key false
+
+    @type t :: %__MODULE__{}
+
     embedded_schema do
       field(:command, :string, default: "codex app-server")
 
@@ -382,8 +385,6 @@ defmodule SymphonyElixir.Config.Schema do
 
     %{settings | tracker: tracker, workspace: workspace, codex: codex, agents: agents}
   end
-
-  defp finalize_agents(nil), do: %{}
 
   defp finalize_agents(agents) when is_map(agents) do
     Enum.reduce(agents, %{}, fn {name, agent_attrs}, acc ->

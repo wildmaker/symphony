@@ -1653,6 +1653,20 @@ defmodule SymphonyElixir.CoreTest do
     assert agent_config.command == "cursor-symphony-bridge"
   end
 
+  test "agents with invalid config are silently dropped" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agents: %{
+        valid_agent: [command: "valid-command"],
+        invalid_agent: [command: ""]
+      }
+    )
+
+    settings = Config.settings!()
+    assert Map.has_key?(settings.agents, "valid_agent")
+    assert settings.agents["valid_agent"].command == "valid-command"
+    refute Map.has_key?(settings.agents, "invalid_agent")
+  end
+
   test "agent_config_for_issue uses first matching label" do
     write_workflow_file!(Workflow.workflow_file_path(),
       agents: %{cursor: [command: "cursor-symphony-bridge"]},

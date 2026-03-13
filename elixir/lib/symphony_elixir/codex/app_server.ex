@@ -45,8 +45,10 @@ defmodule SymphonyElixir.Codex.AppServer do
          {:ok, port} <- start_port(expanded_workspace, agent_config) do
       metadata = port_metadata(port)
 
+      read_timeout_ms = agent_config.read_timeout_ms
+
       with {:ok, resolved_policies} <- session_policies_from(expanded_workspace, agent_config),
-           {:ok, thread_id} <- do_start_session(port, expanded_workspace, resolved_policies, agent_config.read_timeout_ms) do
+           {:ok, thread_id} <- do_start_session(port, expanded_workspace, resolved_policies, read_timeout_ms) do
         {:ok,
          %{
            port: port,
