@@ -30,8 +30,9 @@ agent loop with Linear as the tracker and Codex as the coding agent.
 ## Quick start (local)
 
 ```bash
-git clone https://github.com/wildmaker/symphony
-cd symphony/elixir
+git clone https://github.com/<owner>/symphony.git
+cd symphony
+cd elixir
 mise trust
 mise install
 mise exec -- mix setup
