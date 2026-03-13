@@ -122,6 +122,9 @@ defmodule SymphonyElixir.TestSupport do
           observability_render_interval_ms: 16,
           server_port: nil,
           server_host: nil,
+          agents: nil,
+          routing_default: nil,
+          routing_by_label: nil,
           prompt: @workflow_prompt
         ],
         overrides
@@ -157,6 +160,9 @@ defmodule SymphonyElixir.TestSupport do
     observability_render_interval_ms = Keyword.get(config, :observability_render_interval_ms)
     server_port = Keyword.get(config, :server_port)
     server_host = Keyword.get(config, :server_host)
+    agents = Keyword.get(config, :agents)
+    routing_default = Keyword.get(config, :routing_default)
+    routing_by_label = Keyword.get(config, :routing_by_label)
     prompt = Keyword.get(config, :prompt)
 
     sections =
@@ -190,6 +196,8 @@ defmodule SymphonyElixir.TestSupport do
         hooks_yaml(hook_after_create, hook_before_run, hook_after_run, hook_before_remove, hook_timeout_ms),
         observability_yaml(observability_enabled, observability_refresh_ms, observability_render_interval_ms),
         server_yaml(server_port, server_host),
+        agents_yaml(agents),
+        routing_yaml(routing_default, routing_by_label),
         "---",
         prompt
       ]
@@ -266,5 +274,57 @@ defmodule SymphonyElixir.TestSupport do
       |> Enum.map_join("\n", &("    " <> &1))
 
     "  #{name}: |\n#{indented}"
+  end
+
+  defp agents_yaml(nil), do: nil
+
+  defp agents_yaml(agents) when is_map(agents) do
+    agent_lines =
+      Enum.flat_map(agents, fn {name, agent_config} ->
+        lines = [
+          "  #{name}:",
+          "    command: #{yaml_value(agent_config[:command] || "codex app-server")}",
+          "    approval_policy: #{yaml_value(agent_config[:approval_policy] || "never")}",
+          "    thread_sandbox: #{yaml_value(agent_config[:thread_sandbox] || "danger-full-access")}"
+        ]
+
+        lines =
+          if agent_config[:turn_sandbox_policy] do
+            lines ++ ["    turn_sandbox_policy: #{yaml_value(agent_config[:turn_sandbox_policy])}"]
+          else
+            lines
+          end
+
+        lines
+      end)
+
+    Enum.join(["agents:" | agent_lines], "\n")
+  end
+
+  defp routing_yaml(nil, nil), do: nil
+
+  defp routing_yaml(routing_default, routing_by_label) do
+    parts = ["routing:"]
+
+    parts =
+      if routing_default do
+        parts ++ ["  default_agent: #{yaml_value(routing_default)}"]
+      else
+        parts
+      end
+
+    parts =
+      if is_map(routing_by_label) and map_size(routing_by_label) > 0 do
+        by_label_lines =
+          Enum.map(routing_by_label, fn {label, agent} ->
+            "    #{label}: #{yaml_value(agent)}"
+          end)
+
+        parts ++ ["  by_label:"] ++ by_label_lines
+      else
+        parts
+      end
+
+    Enum.join(parts, "\n")
   end
 end

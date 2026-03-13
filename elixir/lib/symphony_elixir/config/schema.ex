@@ -137,6 +137,9 @@ defmodule SymphonyElixir.Config.Schema do
     import Ecto.Changeset
 
     @primary_key false
+
+    @type t :: %__MODULE__{}
+
     embedded_schema do
       field(:command, :string, default: "codex app-server")
 
@@ -242,6 +245,24 @@ defmodule SymphonyElixir.Config.Schema do
     end
   end
 
+  defmodule Routing do
+    @moduledoc false
+    use Ecto.Schema
+    import Ecto.Changeset
+
+    @primary_key false
+    embedded_schema do
+      field(:default_agent, :string, default: "codex")
+      field(:by_label, :map, default: %{})
+    end
+
+    @spec changeset(%__MODULE__{}, map()) :: Ecto.Changeset.t()
+    def changeset(schema, attrs) do
+      schema
+      |> cast(attrs, [:default_agent, :by_label], empty_values: [])
+    end
+  end
+
   embedded_schema do
     embeds_one(:tracker, Tracker, on_replace: :update, defaults_to_struct: true)
     embeds_one(:polling, Polling, on_replace: :update, defaults_to_struct: true)
@@ -251,6 +272,8 @@ defmodule SymphonyElixir.Config.Schema do
     embeds_one(:hooks, Hooks, on_replace: :update, defaults_to_struct: true)
     embeds_one(:observability, Observability, on_replace: :update, defaults_to_struct: true)
     embeds_one(:server, Server, on_replace: :update, defaults_to_struct: true)
+    field(:agents, :map, default: %{})
+    embeds_one(:routing, Routing, on_replace: :update, defaults_to_struct: true)
   end
 
   @spec parse(map()) :: {:ok, %__MODULE__{}} | {:error, {:invalid_workflow_config, String.t()}}
@@ -328,7 +351,7 @@ defmodule SymphonyElixir.Config.Schema do
 
   defp changeset(attrs) do
     %__MODULE__{}
-    |> cast(attrs, [])
+    |> cast(attrs, [:agents])
     |> cast_embed(:tracker, with: &Tracker.changeset/2)
     |> cast_embed(:polling, with: &Polling.changeset/2)
     |> cast_embed(:workspace, with: &Workspace.changeset/2)
@@ -337,6 +360,7 @@ defmodule SymphonyElixir.Config.Schema do
     |> cast_embed(:hooks, with: &Hooks.changeset/2)
     |> cast_embed(:observability, with: &Observability.changeset/2)
     |> cast_embed(:server, with: &Server.changeset/2)
+    |> cast_embed(:routing, with: &Routing.changeset/2)
   end
 
   defp finalize_settings(settings) do
@@ -357,7 +381,29 @@ defmodule SymphonyElixir.Config.Schema do
         turn_sandbox_policy: normalize_optional_map(settings.codex.turn_sandbox_policy)
     }
 
-    %{settings | tracker: tracker, workspace: workspace, codex: codex}
+    agents = finalize_agents(settings.agents)
+
+    %{settings | tracker: tracker, workspace: workspace, codex: codex, agents: agents}
+  end
+
+  defp finalize_agents(agents) when is_map(agents) do
+    Enum.reduce(agents, %{}, fn {name, agent_attrs}, acc ->
+      attrs = if is_map(agent_attrs), do: agent_attrs, else: %{}
+
+      case %Codex{} |> Codex.changeset(attrs) |> apply_action(:validate) do
+        {:ok, agent_config} ->
+          finalized = %{
+            agent_config
+            | approval_policy: normalize_keys(agent_config.approval_policy),
+              turn_sandbox_policy: normalize_optional_map(agent_config.turn_sandbox_policy)
+          }
+
+          Map.put(acc, to_string(name), finalized)
+
+        {:error, _changeset} ->
+          acc
+      end
+    end)
   end
 
   defp normalize_keys(value) when is_map(value) do
