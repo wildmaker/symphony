@@ -107,6 +107,30 @@ You are working on a Linear issue {{ issue.identifier }}.
 Title: {{ issue.title }} Body: {{ issue.description }}
 ```
 
+### Multi-agent routing with per-agent prompts
+
+Different task types can use different agents and workflow prompts via label-based routing:
+
+```yaml
+agents:
+  codex:
+    command: codex app-server
+  frontend:
+    command: codex app-server
+    prompt_template: |
+      You are a frontend specialist working on {{ issue.identifier }}.
+      {{ issue.description }}
+routing:
+  default_agent: codex
+  by_label:
+    frontend: frontend
+```
+
+When an issue has the `frontend` label, Symphony uses the `frontend` agent's command and prompt
+template instead of the default. The `prompt_template` field supports the same Liquid template
+variables (`issue`, `attempt`) as the main `WORKFLOW.md` body. When `prompt_template` is absent,
+the `WORKFLOW.md` body is used as the prompt.
+
 Notes:
 
 - If a value is missing, defaults are used.

@@ -42,6 +42,35 @@ specific model per agent definition. If you prefer an environment default,
 `CURSOR_MODEL=gpt-5.4` is also supported, but an explicit `--model` in
 `command:` takes precedence.
 
+### Per-agent workflow prompts
+
+Each agent can define its own `prompt_template` to override the default `WORKFLOW.md` prompt body. This enables different task types to follow different workflows based on label-based routing:
+
+```yaml
+agents:
+  codex:
+    command: codex app-server
+  frontend:
+    command: codex app-server
+    prompt_template: |
+      You are a frontend specialist working on {{ issue.identifier }}.
+      Focus on UI/UX quality, accessibility, and responsive design.
+      {{ issue.description }}
+  devops:
+    command: codex app-server
+    prompt_template: |
+      You are a DevOps engineer working on {{ issue.identifier }}.
+      Focus on infrastructure, CI/CD, and deployment reliability.
+      {{ issue.description }}
+routing:
+  default_agent: codex
+  by_label:
+    frontend: frontend
+    devops: devops
+```
+
+When an issue has a matching label, Symphony uses that agent's `prompt_template` instead of the `WORKFLOW.md` body. Issues without matching labels use `default_agent` with the default prompt. The `prompt_template` supports the same Liquid template variables (`issue`, `attempt`) as the main prompt.
+
 Requires the Cursor CLI (`agent`) on PATH and `CURSOR_API_KEY` set in the
 environment.
 
