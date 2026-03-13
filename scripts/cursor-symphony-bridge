@@ -15,11 +15,15 @@ Usage (from WORKFLOW.md agents section)::
 
     agents:
       cursor:
-        command: cursor-symphony-bridge
+        command: cursor-symphony-bridge --model gpt-5.4
+
+Supports ``--model`` flag or ``CURSOR_MODEL`` env var to select the
+underlying LLM.  The flag takes precedence over the env var.
 """
 
 from __future__ import annotations
 
+import argparse
 import json
 import os
 import signal
@@ -92,8 +96,9 @@ class ACPClient:
     * Cursor extension methods are handled gracefully.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, *, model: str | None = None) -> None:
         self.process: subprocess.Popen | None = None
+        self._model = model
         self._next_id: int = 1
         self._lock = threading.Lock()
         self._pending: dict[int, dict] = {}
@@ -108,6 +113,8 @@ class ACPClient:
         api_key = os.environ.get("CURSOR_API_KEY")
         if api_key:
             cmd += ["--api-key", api_key]
+        if self._model:
+            cmd += ["--model", self._model]
         cmd.append("acp")
 
         try:
@@ -403,8 +410,8 @@ class Bridge:
     """Main bridge that reads Symphony app-server JSON-RPC from stdin and
     translates to ACP calls on the ``ACPClient``."""
 
-    def __init__(self) -> None:
-        self.acp = ACPClient()
+    def __init__(self, *, model: str | None = None) -> None:
+        self.acp = ACPClient(model=model)
         self.thread_sessions: dict[str, str] = {}
         self._mcp_server_path = _resolve_mcp_server_path()
 
@@ -559,8 +566,8 @@ class Bridge:
             self.acp.initialize()
             try:
                 self.acp.authenticate()
-            except Exception:
-                pass
+            except Exception as exc:
+                log(f"ACP authenticate failed on restart (non-fatal): {exc}")
             log("ACP process restarted successfully")
         except Exception as exc:
             log(f"ACP restart failed: {exc}")
@@ -606,7 +613,21 @@ class Bridge:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    bridge = Bridge()
+    parser = argparse.ArgumentParser(
+        description="Symphony ↔ Cursor ACP protocol bridge",
+    )
+    parser.add_argument(
+        "--model",
+        default=os.environ.get("CURSOR_MODEL"),
+        help="Model to pass to the Cursor agent CLI (overrides CURSOR_MODEL env var)",
+    )
+    args = parser.parse_args()
+
+    model = args.model
+    if model:
+        log(f"Using model: {model}")
+
+    bridge = Bridge(model=model)
 
     def _shutdown(signum, frame):
         bridge.stop()
