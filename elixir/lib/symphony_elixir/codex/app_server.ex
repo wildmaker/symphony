@@ -191,7 +191,6 @@ defmodule SymphonyElixir.Codex.AppServer do
             :binary,
             :exit_status,
             :stderr_to_stdout,
-            env: port_environment(workspace),
             args: [~c"-lc", String.to_charlist(agent_config.command)],
             cd: String.to_charlist(workspace),
             line: @port_line_bytes
@@ -199,35 +198,6 @@ defmodule SymphonyElixir.Codex.AppServer do
         )
 
       {:ok, port}
-    end
-  end
-
-  defp port_environment(workspace) when is_binary(workspace) do
-    workspace_scripts_path = Path.join(workspace, "scripts")
-    current_path = System.get_env("PATH") || ""
-
-    symphony_scripts_path = symphony_scripts_path()
-
-    path_parts =
-      [workspace_scripts_path, symphony_scripts_path]
-      |> Enum.reject(&is_nil/1)
-      |> Enum.filter(&File.dir?/1)
-
-    resolved_path =
-      case {path_parts, current_path} do
-        {[], ""} -> ""
-        {parts, ""} -> Enum.join(parts, ":")
-        {[], path} -> path
-        {parts, path} -> Enum.join(parts, ":") <> ":" <> path
-      end
-
-    [{~c"PATH", String.to_charlist(resolved_path)}]
-  end
-
-  defp symphony_scripts_path do
-    case Application.get_env(:symphony_elixir, :symphony_root) do
-      root when is_binary(root) -> Path.join(root, "scripts")
-      _ -> nil
     end
   end
 
