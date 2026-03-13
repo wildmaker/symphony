@@ -191,6 +191,7 @@ defmodule SymphonyElixir.Codex.AppServer do
             :binary,
             :exit_status,
             :stderr_to_stdout,
+            env: port_environment(workspace),
             args: [~c"-lc", String.to_charlist(agent_config.command)],
             cd: String.to_charlist(workspace),
             line: @port_line_bytes
@@ -199,6 +200,19 @@ defmodule SymphonyElixir.Codex.AppServer do
 
       {:ok, port}
     end
+  end
+
+  defp port_environment(workspace) when is_binary(workspace) do
+    workspace_scripts_path = Path.join(workspace, "scripts")
+    current_path = System.get_env("PATH") || ""
+
+    resolved_path =
+      case current_path do
+        "" -> workspace_scripts_path
+        _ -> workspace_scripts_path <> ":" <> current_path
+      end
+
+    [{~c"PATH", String.to_charlist(resolved_path)}]
   end
 
   defp port_metadata(port) when is_port(port) do

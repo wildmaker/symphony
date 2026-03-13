@@ -60,10 +60,10 @@ def handle_turn_start(msg: dict) -> None:
         "result": {"turn": {"id": turn_id}},
     })
 
-    # Run the cursor CLI.
+    # Run the cursor-agent CLI.
     try:
         result = subprocess.run(
-            ["cursor", "-p", prompt, "--folder", cwd],
+            ["cursor-agent", "-p", "--trust", prompt],
             cwd=cwd,
             capture_output=True,
             text=True,
@@ -77,13 +77,13 @@ def handle_turn_start(msg: dict) -> None:
             send_response({
                 "method": "turn/failed",
                 "params": {
-                    "error": f"cursor exited with code {result.returncode}: {stderr_snippet}",
+                    "error": f"cursor-agent exited with code {result.returncode}: {stderr_snippet}",
                 },
             })
     except FileNotFoundError:
         send_response({
             "method": "turn/failed",
-            "params": {"error": "cursor CLI not found on PATH"},
+            "params": {"error": "cursor-agent CLI not found on PATH"},
         })
     except subprocess.TimeoutExpired:
         send_response({

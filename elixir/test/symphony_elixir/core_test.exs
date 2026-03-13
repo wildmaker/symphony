@@ -1576,6 +1576,86 @@ defmodule SymphonyElixir.CoreTest do
     end
   end
 
+  test "app server resolves command from workspace scripts directory" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-server-workspace-scripts-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-89")
+      scripts_dir = Path.join(workspace, "scripts")
+      bridge_binary = Path.join(scripts_dir, "cursor-symphony-bridge")
+      trace_file = Path.join(test_root, "workspace-scripts.trace")
+
+      File.mkdir_p!(scripts_dir)
+
+      File.write!(bridge_binary, """
+      #!/bin/sh
+      trace_file="#{trace_file}"
+      count=0
+      printf 'ARGV:%s\\n' "$*" >> "$trace_file"
+      printf 'CWD:%s\\n' "$PWD" >> "$trace_file"
+      printf 'PATH:%s\\n' "$PATH" >> "$trace_file"
+
+      while IFS= read -r _line; do
+        count=$((count + 1))
+
+        case "$count" in
+          1)
+            printf '%s\\n' '{"id":1,"result":{}}'
+            ;;
+          2)
+            printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-89"}}}'
+            ;;
+          3)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-89"}}}'
+            ;;
+          4)
+            printf '%s\\n' '{"method":"turn/completed"}'
+            exit 0
+            ;;
+          *)
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(bridge_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_command: "cursor-symphony-bridge"
+      )
+
+      issue = %Issue{
+        id: "issue-workspace-script",
+        identifier: "MT-89",
+        title: "Resolve command from workspace scripts",
+        description: "Ensure workspace scripts are on PATH for app server startup",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-89",
+        labels: ["backend"]
+      }
+
+      assert {:ok, _result} = AppServer.run(workspace, "Run from workspace scripts", issue)
+
+      lines = File.read!(trace_file) |> String.split("\n", trim: true)
+      expanded_scripts_dir = Path.join(Path.expand(workspace), "scripts")
+
+      assert Enum.any?(lines, &String.starts_with?(&1, "ARGV:"))
+      assert cwd_line = Enum.find(lines, &String.starts_with?(&1, "CWD:"))
+      assert String.ends_with?(cwd_line, Path.basename(workspace))
+      assert path_line = Enum.find(lines, &String.starts_with?(&1, "PATH:"))
+      assert String.contains?(path_line, expanded_scripts_dir)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "agent_config_for_issue returns codex config when no routing configured" do
     issue = %Issue{
       id: "issue-no-routing",
