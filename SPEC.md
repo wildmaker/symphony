@@ -1140,6 +1140,48 @@ Note:
 
 - Workspaces are intentionally preserved after successful runs.
 
+### 10.8 Alternative Agent Protocols
+
+#### 10.8.1 ACP (Agent Client Protocol)
+
+Symphony supports agents that speak the Agent Client Protocol (ACP) via a protocol bridge script.
+ACP is a session-based JSON-RPC 2.0 protocol over stdio that enables persistent sessions, streaming
+updates, and structured permission handling.
+
+The bridge script (`cursor-symphony-bridge`) translates between Symphony's app-server protocol and
+ACP's session-based protocol:
+
+| Symphony Method          | ACP Method                                                        |
+|--------------------------|-------------------------------------------------------------------|
+| `initialize`             | `initialize` (with `protocolVersion`, `clientCapabilities`)       |
+| `thread/start`           | `session/new` (with `cwd`)                                       |
+| `turn/start`             | `session/prompt` (with `sessionId`, `prompt` content blocks)      |
+| `turn/completed` (emit)  | Derived from `session/prompt` response `stopReason: "end_turn"`   |
+| `turn/failed` (emit)     | Derived from ACP errors or `stopReason: "error"` / `"cancelled"` |
+
+Key differences from the default app-server protocol:
+
+- The ACP process (`agent acp`) is spawned once as a long-lived subprocess rather than per-turn.
+- Sessions persist across turns via `sessionId`, enabling multi-turn continuation on the same
+  thread without creating a new session.
+- Tool permission requests (`session/request_permission`) are auto-approved with `allow-always` to
+  match Symphony's existing approval policy.
+- Streaming updates (`session/update`) flow from ACP during prompt processing.
+- Authentication uses the `CURSOR_API_KEY` environment variable or pre-authenticated CLI state.
+
+Configuration example:
+
+```yaml
+agents:
+  cursor:
+    command: cursor-symphony-bridge
+routing:
+  default_agent: cursor
+```
+
+The `agent` CLI must be available on `PATH`. The bridge handles all protocol translation
+internally — Symphony's AppServer sees no difference from a standard app-server subprocess.
+
 ## 11. Issue Tracker Integration Contract (Linear-Compatible)
 
 ### 11.1 Required Operations

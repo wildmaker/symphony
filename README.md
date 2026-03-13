@@ -20,6 +20,25 @@ Symphony polls a Linear project for active tickets. Each ticket gets an isolated
 
 The state machine lives in `WORKFLOW.md` — a markdown file with YAML frontmatter for config and a prompt body that defines agent behavior. Hot-reloads in under a second, no restart needed.
 
+## Multi-agent support
+
+Symphony supports routing issues to different coding agents via label-based routing. In addition to the default Codex agent, Symphony includes a protocol bridge for **Cursor CLI** using the [Agent Client Protocol (ACP)](https://agentclientprotocol.com/). The `cursor-symphony-bridge` script translates between Symphony's app-server protocol and ACP's session-based JSON-RPC 2.0 protocol, enabling persistent sessions, streaming updates, and automatic permission handling.
+
+To route issues to Cursor, configure agents and routing in your `WORKFLOW.md`:
+
+```yaml
+agents:
+  cursor:
+    command: cursor-symphony-bridge
+routing:
+  default_agent: cursor
+  # or route by label:
+  by_label:
+    use-cursor: cursor
+```
+
+Requires the Cursor CLI (`agent`) on PATH and `CURSOR_API_KEY` set in the environment.
+
 ## What's different from upstream
 
 - **Cheaper Linear calls** — agents no longer burn tokens on schema introspection before every GraphQL call, and workpad sync is a single dynamic tool instead of a hand-rolled mutation
