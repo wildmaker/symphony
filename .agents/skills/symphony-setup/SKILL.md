@@ -60,6 +60,19 @@ Auto-detect as much as possible. Only ask the user to confirm or fill gaps.
 - **Clone URL** — `git remote get-url origin`. Verify it works non-interactively: `git clone --depth 1 <url> /tmp/test-clone && rm -rf /tmp/test-clone`.
 - **Setup commands** — infer from lockfiles/manifests. Confirm with the user.
 
+### Choose skills source strategy
+
+Ask the user to choose one strategy before patching `WORKFLOW.md`:
+
+1. **Default (recommended): project-local skills**
+   - Install/copy worker skills into the user's repo (`.agents/skills/*`) and commit them.
+   - Every workspace clone gets the exact same skill version as the code branch.
+2. **Custom: central skills repo**
+   - Keep canonical skills in a dedicated repo, and sync them during `hooks.after_create`.
+   - Use this when many repos must share one managed skill set.
+
+If the user does not specify, default to **project-local skills**.
+
 ### Auto-discover Linear project
 
 Use Linear MCP to list projects. Present the list and let the user pick. The `slugId` is what goes in WORKFLOW.md's `tracker.project_slug`.
@@ -95,15 +108,17 @@ If detected, propose a `launch-app` skill based on what you find (framework, sta
 
 ### Install skills and workflow
 
-Install two things from Symphony into the user's repo:
+Install `WORKFLOW.md` into the user's repo, then configure skills based on the
+selected strategy:
 
-1. **Skills** — install via skills.sh (agents need these in their workspace clone):
+1. **Skills (project-local strategy)** — install via skills.sh (agents need these in their workspace clone):
    ```bash
    cd <user's repo>
    npx skills add odysseus0/symphony -a codex -s linear land commit push pull debug --copy -y
    ```
    The `--copy` flag is required — symlinks would break in workspace clones. The `-s` flag excludes `symphony-setup` (meta-skill, not needed by workers).
-2. **`elixir/WORKFLOW.md`** — copy the **entire file** including the markdown body. The prompt body contains the state machine, planning protocol, and validation strategy that makes agents effective.
+2. **Skills (central strategy)** — keep canonical skills in the central repo and sync `.agents/skills` from `hooks.after_create`. Skip local install unless the user asks for fallback duplication.
+3. **`elixir/WORKFLOW.md`** — copy the **entire file** including the markdown body. The prompt body contains the state machine, planning protocol, and validation strategy that makes agents effective.
 
 ## Patch WORKFLOW.md frontmatter
 
@@ -126,6 +141,27 @@ hooks:
     git clone --depth 1 <user's repo clone URL> .
     <user's setup commands, if any>
 ```
+
+If the user chose **custom central skills repo**, extend `after_create` to sync
+skills right after cloning the project:
+
+```yaml
+hooks:
+  after_create: |
+    git clone --depth 1 <user's repo clone URL> .
+    tmp_skills_dir="$(mktemp -d)"
+    git clone --depth 1 --branch <ref-or-branch> <skills-repo-url> "$tmp_skills_dir"
+    rm -rf .agents/skills
+    mkdir -p .agents/skills
+    cp -R "$tmp_skills_dir"/.agents/skills/. .agents/skills/
+    rm -rf "$tmp_skills_dir"
+    <user's setup commands, if any>
+```
+
+Rules:
+- Keep project clone first (`git clone ... .`) so code always matches the issue branch.
+- Central repo is for skills distribution only unless the user explicitly wants more.
+- Ensure the central skills repo clone URL also works non-interactively.
 
 **Leave everything else as-is.** Sandbox, approval_policy, polling interval, and concurrency settings all have good defaults in the fork.
 
@@ -196,7 +232,12 @@ The WORKFLOW.md prompt tells agents to "run runtime validation" for app-touching
 
 ## Commit and push
 
-Commit `.agents/skills/`, `WORKFLOW.md`, and `launch-app` skill (if created) to the user's repo and push. **Push is critical** — agents clone from the remote, so unpushed changes are invisible to workers.
+Commit strategy:
+
+- **Project-local skills**: commit `.agents/skills/`, `WORKFLOW.md`, and `launch-app` (if created).
+- **Central skills repo**: commit `WORKFLOW.md` and `launch-app` (if created) in the project repo; commit skill changes in the central skills repo.
+
+Then push. **Push is critical** — agents clone from the remote, so unpushed changes are invisible to workers.
 
 After pushing, verify: `git log origin/$(git branch --show-current) --oneline -1` should show your commit.
 
@@ -226,7 +267,7 @@ Have the user push a test ticket to Todo in Linear. Watch for the first worker t
 - [ ] `codex` authenticated?
 - [ ] `gh auth status` passing?
 - [ ] Repo clone URL works non-interactively?
-- [ ] `.agents/skills/` and `WORKFLOW.md` pushed to remote?
+- [ ] Chosen skills source is pushed? (project-local `.agents/skills/` or central skills repo) and `WORKFLOW.md` pushed?
 - [ ] Custom Linear states (Rework, Human Review, Merging) added?
 
 To verify Cursor routing specifically, add one of `model-cursor-opus`, `model-cursor-gpt-5-3-codex`, or `use-cursor` to a test ticket. Extra checklist:
