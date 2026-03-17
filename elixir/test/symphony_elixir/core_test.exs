@@ -196,6 +196,25 @@ defmodule SymphonyElixir.CoreTest do
     assert {:error, :workflow_front_matter_not_a_map} = Workflow.load(workflow_path)
   end
 
+  test "workflow load preserves valid UTF-8 in prompt with multibyte characters" do
+    workflow_path =
+      Path.join(
+        Path.dirname(Workflow.workflow_file_path()),
+        "UNICODE_WORKFLOW.md"
+      )
+
+    unicode_prompt = "Priority: 必须 阻塞 建议 推荐\nDash — and arrow →"
+    File.write!(workflow_path, "---\ntracker:\n  kind: linear\n---\n#{unicode_prompt}\n")
+    on_exit(fn -> File.rm(workflow_path) end)
+
+    assert {:ok, %{prompt: prompt}} = Workflow.load(workflow_path)
+    assert String.valid?(prompt)
+    assert prompt =~ "必须"
+    assert prompt =~ "阻塞"
+    assert prompt =~ "—"
+    assert {:ok, _} = Jason.encode(%{"text" => prompt})
+  end
+
   test "SymphonyElixir.start_link delegates to the orchestrator" do
     write_workflow_file!(Workflow.workflow_file_path(), tracker_kind: "memory")
     Application.put_env(:symphony_elixir, :memory_tracker_issues, [])
