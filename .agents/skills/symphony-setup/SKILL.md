@@ -44,12 +44,32 @@ if [ -z "$SYMPHONY_REPO_URL" ]; then
   SYMPHONY_REPO_URL="https://github.com/odysseus0/symphony.git"
 fi
 
-git clone "$SYMPHONY_REPO_URL"
+# Re-runnable setup:
+# - if ./symphony is missing: clone
+# - if ./symphony is a git repo: update in place
+# - if ./symphony exists but is not a git repo: stop and ask for confirmation before deleting
+if [ ! -e symphony ]; then
+  git clone "$SYMPHONY_REPO_URL" symphony
+elif [ -d symphony/.git ]; then
+  git -C symphony fetch --all --prune
+  # Reset to remote default branch to avoid stale local state.
+  DEFAULT_BRANCH="$(git -C symphony remote show origin | sed -n '/HEAD branch/s/.*: //p')"
+  [ -n "$DEFAULT_BRANCH" ] || DEFAULT_BRANCH="main"
+  git -C symphony checkout "$DEFAULT_BRANCH"
+  git -C symphony reset --hard "origin/$DEFAULT_BRANCH"
+else
+  echo "Found ./symphony but it is not a git repository."
+  echo "Stop here. Ask user before removing/replacing this directory."
+  exit 1
+fi
+
 cd symphony/elixir
 mise trust && mise install
 mise exec -- mix setup
 mise exec -- mix build
 ```
+
+Never delete `./symphony` automatically. If replacement is required, ask the user explicitly before any destructive step.
 
 `mix setup` runs `deps.get` → `escript.build` → `symphony.install`. The last step symlinks agent bridge scripts (`cursor-symphony-bridge`, `symphony-linear-cli`) into `~/.local/bin/` so they are available on PATH.
 
