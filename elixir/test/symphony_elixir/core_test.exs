@@ -1766,6 +1766,159 @@ defmodule SymphonyElixir.CoreTest do
     assert agent_config.command == "cursor-symphony-bridge"
   end
 
+  test "Issue.model_override returns nil when no model-* label" do
+    issue = %Issue{
+      id: "issue-no-model",
+      identifier: "MT-400",
+      title: "No model label",
+      state: "Todo",
+      labels: ["backend", "bug"]
+    }
+
+    assert Issue.model_override(issue) == nil
+  end
+
+  test "Issue.model_override returns nil for empty labels" do
+    issue = %Issue{
+      id: "issue-empty-labels",
+      identifier: "MT-401",
+      title: "Empty labels",
+      state: "Todo",
+      labels: []
+    }
+
+    assert Issue.model_override(issue) == nil
+  end
+
+  test "Issue.model_override extracts model from single model-* label" do
+    issue = %Issue{
+      id: "issue-single-model",
+      identifier: "MT-402",
+      title: "Single model label",
+      state: "Todo",
+      labels: ["backend", "model-o3-pro"]
+    }
+
+    assert Issue.model_override(issue) == "o3-pro"
+  end
+
+  test "Issue.model_override extracts model from label with complex name" do
+    issue = %Issue{
+      id: "issue-complex-model",
+      identifier: "MT-403",
+      title: "Complex model label",
+      state: "Todo",
+      labels: ["model-gpt-5.3-codex"]
+    }
+
+    assert Issue.model_override(issue) == "gpt-5.3-codex"
+  end
+
+  test "Issue.model_override uses first model-* label when multiple present" do
+    import ExUnit.CaptureLog
+
+    issue = %Issue{
+      id: "issue-multi-model",
+      identifier: "MT-404",
+      title: "Multiple model labels",
+      state: "Todo",
+      labels: ["model-o3-pro", "model-gpt-5.3-codex"]
+    }
+
+    log =
+      capture_log(fn ->
+        assert Issue.model_override(issue) == "o3-pro"
+      end)
+
+    assert log =~ "Multiple model-* labels"
+  end
+
+  test "agent_config_for_issue applies model-* label override to command" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      codex_command: "codex --model gpt-5.3-codex app-server"
+    )
+
+    issue = %Issue{
+      id: "issue-model-override",
+      identifier: "MT-405",
+      title: "Model override via label",
+      state: "Todo",
+      labels: ["model-o3-pro"]
+    }
+
+    agent_config = Config.agent_config_for_issue(issue)
+    assert agent_config.command == "codex --model o3-pro app-server"
+  end
+
+  test "agent_config_for_issue injects --model when base command has none" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      codex_command: "codex app-server"
+    )
+
+    issue = %Issue{
+      id: "issue-model-inject",
+      identifier: "MT-406",
+      title: "Model inject via label",
+      state: "Todo",
+      labels: ["model-o3-pro"]
+    }
+
+    agent_config = Config.agent_config_for_issue(issue)
+    assert agent_config.command == "codex --model o3-pro app-server"
+  end
+
+  test "agent_config_for_issue preserves other flags when replacing model" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      codex_command: "codex --config shell_environment_policy.inherit=all --model gpt-5.3-codex app-server"
+    )
+
+    issue = %Issue{
+      id: "issue-model-preserve-flags",
+      identifier: "MT-407",
+      title: "Model override preserves flags",
+      state: "Todo",
+      labels: ["model-o3-pro"]
+    }
+
+    agent_config = Config.agent_config_for_issue(issue)
+    assert agent_config.command == "codex --config shell_environment_policy.inherit=all --model o3-pro app-server"
+  end
+
+  test "agent_config_for_issue does not modify command without model-* label" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      codex_command: "codex --model gpt-5.3-codex app-server"
+    )
+
+    issue = %Issue{
+      id: "issue-no-model-override",
+      identifier: "MT-408",
+      title: "No model override",
+      state: "Todo",
+      labels: ["backend"]
+    }
+
+    agent_config = Config.agent_config_for_issue(issue)
+    assert agent_config.command == "codex --model gpt-5.3-codex app-server"
+  end
+
+  test "agent_config_for_issue model override works with routed agents" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agents: %{cursor: [command: "cursor --model default-model app-server"]},
+      routing_by_label: %{"use-cursor" => "cursor"}
+    )
+
+    issue = %Issue{
+      id: "issue-model-override-routed",
+      identifier: "MT-409",
+      title: "Model override on routed agent",
+      state: "Todo",
+      labels: ["use-cursor", "model-o3-pro"]
+    }
+
+    agent_config = Config.agent_config_for_issue(issue)
+    assert agent_config.command == "cursor --model o3-pro app-server"
+  end
+
   test "app server startup payload uses configurable approval and sandbox settings from workflow config" do
     test_root =
       Path.join(

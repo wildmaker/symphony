@@ -1182,6 +1182,32 @@ routing:
 The `agent` CLI must be available on `PATH`. The bridge handles all protocol translation
 internally — Symphony's AppServer sees no difference from a standard app-server subprocess.
 
+### 10.8.2 Per-Issue Model Override via Labels
+
+Issue labels with the prefix `model-` override the `--model` flag in the resolved agent command for
+that issue. This allows per-ticket model selection without changing the global `codex.command` or
+defining separate named agents for each model.
+
+Label convention:
+
+- Prefix: `model-`
+- The model name is extracted by stripping the prefix. Example: label `model-o3-pro` selects model
+  `o3-pro`.
+- Labels are already normalized to lowercase by the tracker client (Section 11.3).
+- If multiple `model-*` labels are present on a single issue, the first one is used and a warning is
+  logged.
+- If no `model-*` label is present, the command is used unchanged.
+
+Command rewriting rules:
+
+- If the resolved agent command already contains `--model <value>`, the value is replaced with the
+  label-derived model.
+- If the command does not contain `--model`, `--model <model>` is inserted before `app-server`.
+
+The model override is applied after label-based agent routing (Section 10.8.1), so it composes with
+named agent selection. For example, an issue with labels `["use-cursor", "model-o3-pro"]` would
+first resolve to the `cursor` agent config, then override its `--model` flag.
+
 ## 11. Issue Tracker Integration Contract (Linear-Compatible)
 
 ### 11.1 Required Operations
