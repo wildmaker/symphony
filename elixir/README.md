@@ -56,14 +56,17 @@ mise exec -- elixir --version
 ## Run
 
 ```bash
-git clone https://github.com/openai/symphony
-cd symphony/elixir
+export SYMPHONY_HOME="${SYMPHONY_HOME:-$HOME/.local/share/symphony}"
+git clone https://github.com/openai/symphony "$SYMPHONY_HOME"
+cd "$SYMPHONY_HOME/elixir"
 mise trust
 mise install
 mise exec -- mix setup
 mise exec -- mix build
-mise exec -- ./bin/symphony ./WORKFLOW.md
+mise exec -- ./bin/symphony ./WORKFLOW.md --i-understand-that-this-will-be-running-without-the-usual-guardrails
 ```
+
+Default recommendation: keep one global Symphony checkout at `$SYMPHONY_HOME` and reuse it for multiple runtime processes.
 
 ## Configuration
 
@@ -79,6 +82,25 @@ Optional flags:
 
 - `--logs-root` tells Symphony to write logs under a different directory (default: `./log`)
 - `--port` also starts the Phoenix observability service (default: disabled)
+
+### Multiple runtimes from one binary
+
+You can run multiple Symphony runtime processes from the same global install. To avoid conflicts:
+
+- Use a different `--port` per runtime.
+- Use a different `--logs-root` per runtime.
+- Use a different `workspace.root` per runtime.
+- Do not let different runtimes poll the same ticket pool; split by `project_slug`, `assignee`, or active-state strategy.
+
+Example:
+
+```bash
+# runtime A
+~/.local/share/symphony/elixir/bin/symphony /repoA/WORKFLOW.md --port 4111 --logs-root ~/.cache/symphony/a --i-understand-that-this-will-be-running-without-the-usual-guardrails
+
+# runtime B
+~/.local/share/symphony/elixir/bin/symphony /repoB/WORKFLOW.md --port 4112 --logs-root ~/.cache/symphony/b --i-understand-that-this-will-be-running-without-the-usual-guardrails
+```
 
 The `WORKFLOW.md` file uses YAML front matter for configuration, plus a Markdown body used as the
 Codex session prompt.

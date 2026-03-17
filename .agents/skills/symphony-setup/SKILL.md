@@ -27,15 +27,22 @@ Run these checks first and **stop if any fail** — resolve before continuing:
 
 Report results to the user before proceeding.
 
-## Build Symphony
+## Build Symphony (global singleton)
 
-Prefer cloning the current repo's remote when running from a Symphony fork. Resolve the source in this order:
+Default strategy: install exactly one Symphony codebase globally and reuse it for many target repos (many runtimes, one binary source of truth).
+
+1. Pick a single install dir (default): `SYMPHONY_HOME="${SYMPHONY_HOME:-$HOME/.local/share/symphony}"`
+2. Clone/update Symphony only in that directory.
+3. Run `mix setup`/`mix build` only there.
+
+Prefer cloning the current repo's remote when running from a Symphony fork. Resolve source in this order:
 
 1. `origin` remote URL of the current git repo
 2. `upstream` remote URL of the current git repo
 3. Fallback: [odysseus0/symphony](https://github.com/odysseus0/symphony)
 
 ```bash
+SYMPHONY_HOME="${SYMPHONY_HOME:-$HOME/.local/share/symphony}"
 SYMPHONY_REPO_URL="$(git remote get-url origin 2>/dev/null || true)"
 if [ -z "$SYMPHONY_REPO_URL" ]; then
   SYMPHONY_REPO_URL="$(git remote get-url upstream 2>/dev/null || true)"
@@ -44,34 +51,37 @@ if [ -z "$SYMPHONY_REPO_URL" ]; then
   SYMPHONY_REPO_URL="https://github.com/odysseus0/symphony.git"
 fi
 
-# Re-runnable setup:
-# - if ./symphony is missing: clone
-# - if ./symphony is a git repo: update in place
-# - if ./symphony exists but is not a git repo: stop and ask for confirmation before deleting
-if [ ! -e symphony ]; then
-  git clone "$SYMPHONY_REPO_URL" symphony
-elif [ -d symphony/.git ]; then
-  git -C symphony fetch --all --prune
-  # Reset to remote default branch to avoid stale local state.
-  DEFAULT_BRANCH="$(git -C symphony remote show origin | sed -n '/HEAD branch/s/.*: //p')"
+mkdir -p "$(dirname "$SYMPHONY_HOME")"
+
+# Re-runnable global setup:
+# - if $SYMPHONY_HOME is missing: clone
+# - if $SYMPHONY_HOME is a git repo: update in place
+# - if $SYMPHONY_HOME exists but is not a git repo: stop and ask user
+if [ ! -e "$SYMPHONY_HOME" ]; then
+  git clone "$SYMPHONY_REPO_URL" "$SYMPHONY_HOME"
+elif [ -d "$SYMPHONY_HOME/.git" ]; then
+  git -C "$SYMPHONY_HOME" fetch --all --prune
+  DEFAULT_BRANCH="$(git -C "$SYMPHONY_HOME" remote show origin | sed -n '/HEAD branch/s/.*: //p')"
   [ -n "$DEFAULT_BRANCH" ] || DEFAULT_BRANCH="main"
-  git -C symphony checkout "$DEFAULT_BRANCH"
-  git -C symphony reset --hard "origin/$DEFAULT_BRANCH"
+  git -C "$SYMPHONY_HOME" checkout "$DEFAULT_BRANCH"
+  git -C "$SYMPHONY_HOME" reset --hard "origin/$DEFAULT_BRANCH"
 else
-  echo "Found ./symphony but it is not a git repository."
+  echo "Found $SYMPHONY_HOME but it is not a git repository."
   echo "Stop here. Ask user before removing/replacing this directory."
   exit 1
 fi
 
-cd symphony/elixir
+cd "$SYMPHONY_HOME/elixir"
 mise trust && mise install
 mise exec -- mix setup
 mise exec -- mix build
 ```
 
-Never delete `./symphony` automatically. If replacement is required, ask the user explicitly before any destructive step.
+Never delete `$SYMPHONY_HOME` automatically. If replacement is required, ask the user explicitly before any destructive step.
 
-`mix setup` runs `deps.get` → `escript.build` → `symphony.install`. The last step symlinks agent bridge scripts (`cursor-symphony-bridge`, `symphony-linear-cli`) into `~/.local/bin/` so they are available on PATH.
+`mix setup` runs `deps.get` → `escript.build` → `symphony.install`. The last step symlinks agent bridge scripts (`cursor-symphony-bridge`, `symphony-linear-cli`) into `~/.local/bin/`.
+
+Important: these symlinks point to files under the Symphony checkout that ran `mix setup`. Do not run `mix setup` from multiple different Symphony clones unless the user explicitly wants to switch the active global install.
 
 After build, verify the scripts are installed:
 
@@ -269,7 +279,8 @@ Show the list to the user and ask if they're comfortable with all of these being
 ## Run
 
 ```bash
-cd <symphony-path>/elixir
+SYMPHONY_HOME="${SYMPHONY_HOME:-$HOME/.local/share/symphony}"
+cd "$SYMPHONY_HOME/elixir"
 mise exec -- ./bin/symphony <repo-path>/WORKFLOW.md \
   --i-understand-that-this-will-be-running-without-the-usual-guardrails
 ```

@@ -54,14 +54,38 @@ environment.
 
 ## Manual setup
 
-1. Build: `git clone https://github.com/odysseus0/symphony && cd symphony/elixir && mise trust && mise install && mise exec -- mix setup && mise exec -- mix build`
+1. Build a global singleton binary source:
+   - `export SYMPHONY_HOME="${SYMPHONY_HOME:-$HOME/.local/share/symphony}"`
+   - `git clone https://github.com/odysseus0/symphony "$SYMPHONY_HOME"` (or update an existing clone in place)
+   - `cd "$SYMPHONY_HOME/elixir" && mise trust && mise install && mise exec -- mix setup && mise exec -- mix build`
 2. Choose a skills source strategy:
    - Default (recommended): project-local skills. Install worker skills into your repo with `npx skills add odysseus0/symphony -a codex -s linear land commit push pull debug --copy -y`
    - Custom: central skills repo. Keep skills in a dedicated repo and sync them from `hooks.after_create`
 3. Copy `elixir/WORKFLOW.md` to your repo
 4. In WORKFLOW.md, set `tracker.project_slug` and `hooks.after_create` (clone your repo + setup commands). If using a central skills repo, also add a skills sync step in `after_create` after cloning your project.
 5. Add **Rework**, **Human Review**, **Merging** as custom states in Linear (Team Settings → Workflow)
-6. Commit, push, then: `mise exec -- ./bin/symphony /path/to/your-repo/WORKFLOW.md`
+6. Commit, push, then run from the global Symphony install:
+   - `cd "$SYMPHONY_HOME/elixir"`
+   - `mise exec -- ./bin/symphony /path/to/your-repo/WORKFLOW.md --i-understand-that-this-will-be-running-without-the-usual-guardrails`
+
+### Single binary, multiple runtimes (recommended)
+
+Use one global Symphony install (`$SYMPHONY_HOME`) and run multiple runtime processes with isolated runtime paths/config.
+
+- Use a different `--port` per runtime.
+- Use a different `--logs-root` per runtime.
+- Use a different `workspace.root` per runtime.
+- Do not let multiple runtimes poll the same ticket pool. Split by `project_slug`, `assignee`, or active-state strategy to avoid worker contention.
+
+Example:
+
+```bash
+# runtime A
+~/.local/share/symphony/elixir/bin/symphony /repoA/WORKFLOW.md --port 4111 --logs-root ~/.cache/symphony/a --i-understand-that-this-will-be-running-without-the-usual-guardrails
+
+# runtime B
+~/.local/share/symphony/elixir/bin/symphony /repoB/WORKFLOW.md --port 4112 --logs-root ~/.cache/symphony/b --i-understand-that-this-will-be-running-without-the-usual-guardrails
+```
 
 **[Getting Started with OpenAI Symphony](https://x.com/odysseus0z/status/2031850264240800131)** — full walkthrough with context on why these defaults matter.
 
