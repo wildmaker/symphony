@@ -106,12 +106,11 @@ defmodule SymphonyElixir.Config do
     end
   end
 
-  @spec codex_command_with_model(String.t(), String.t()) :: String.t()
   defp codex_command_with_model(base_command, model) do
     if Regex.match?(~r/--model\s+\S+/, base_command) do
       Regex.replace(~r/--model\s+\S+/, base_command, "--model #{model}")
     else
-      String.replace(base_command, "app-server", "--model #{model} app-server")
+      Regex.replace(~r/(?<!\S)app-server(?!\S)/, base_command, "--model #{model} app-server", global: false)
     end
   end
 

@@ -53,11 +53,8 @@ defmodule SymphonyElixir.Linear.Issue do
       [] ->
         nil
 
-      [label] ->
-        String.replace_prefix(label, @model_label_prefix, "")
-
-      [label | _rest] ->
-        Logger.warning("Multiple model-* labels found on issue; using first: #{label}")
+      [label | rest] ->
+        if rest != [], do: Logger.warning("Multiple model-* labels found on issue; using first: #{label}")
         String.replace_prefix(label, @model_label_prefix, "")
     end
   end

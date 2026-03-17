@@ -173,6 +173,19 @@ routing:
     use-cursor: cursor
 ```
 
+### Per-issue model override
+
+Add a `model-*` label to a Linear ticket to override the `--model` flag for
+that issue without changing the global config or defining a new agent:
+
+- Label `model-o3-pro` → agent runs with `--model o3-pro`
+- Label `model-gpt-5.3-codex` → agent runs with `--model gpt-5.3-codex`
+
+If the base command already has `--model`, the value is replaced. If it has
+no `--model` flag, one is injected before `app-server`. This composes with
+multi-agent routing: the agent is selected first, then the model override
+is applied to that agent's command.
+
 ### Hooks
 
 - `after_create` — runs once when a workspace directory is first created.

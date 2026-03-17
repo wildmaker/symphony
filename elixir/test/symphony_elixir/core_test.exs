@@ -1919,6 +1919,23 @@ defmodule SymphonyElixir.CoreTest do
     assert agent_config.command == "cursor --model o3-pro app-server"
   end
 
+  test "agent_config_for_issue model inject only replaces first whole-word app-server" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      codex_command: "/usr/local/bin/app-server-launcher app-server"
+    )
+
+    issue = %Issue{
+      id: "issue-model-word-boundary",
+      identifier: "MT-410",
+      title: "Word boundary test",
+      state: "Todo",
+      labels: ["model-o3-pro"]
+    }
+
+    agent_config = Config.agent_config_for_issue(issue)
+    assert agent_config.command == "/usr/local/bin/app-server-launcher --model o3-pro app-server"
+  end
+
   test "app server startup payload uses configurable approval and sandbox settings from workflow config" do
     test_root =
       Path.join(
