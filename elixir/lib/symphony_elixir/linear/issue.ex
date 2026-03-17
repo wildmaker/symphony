@@ -3,6 +3,10 @@ defmodule SymphonyElixir.Linear.Issue do
   Normalized Linear issue representation used by the orchestrator.
   """
 
+  require Logger
+
+  @model_label_prefix "model-"
+
   defstruct [
     :id,
     :identifier,
@@ -39,5 +43,19 @@ defmodule SymphonyElixir.Linear.Issue do
   @spec label_names(t()) :: [String.t()]
   def label_names(%__MODULE__{labels: labels}) do
     labels
+  end
+
+  @spec model_override(t()) :: String.t() | nil
+  def model_override(%__MODULE__{labels: labels}) do
+    labels
+    |> Enum.filter(&String.starts_with?(&1, @model_label_prefix))
+    |> case do
+      [] ->
+        nil
+
+      [label | rest] ->
+        if rest != [], do: Logger.warning("Multiple model-* labels found on issue; using first: #{label}")
+        String.replace_prefix(label, @model_label_prefix, "")
+    end
   end
 end

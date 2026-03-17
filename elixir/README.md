@@ -145,6 +145,18 @@ codex:
   command: "$CODEX_BIN app-server --model gpt-5.3-codex"
 ```
 
+### Per-issue model override via labels
+
+Issue labels with the prefix `model-` override the `--model` flag in the agent command for that
+issue. For example, adding label `model-o3-pro` to a Linear ticket causes Symphony to launch Codex
+with `--model o3-pro` instead of whatever model is configured in `codex.command`.
+
+- If the base command contains `--model <value>`, the value is replaced.
+- If the base command has no `--model` flag, `--model <model>` is inserted before `app-server`.
+- If multiple `model-*` labels exist, the first is used and a warning is logged.
+- The override composes with `routing.by_label` agent selection: agent routing resolves first, then
+  the model override is applied to the resolved agent's command.
+
 - If `WORKFLOW.md` is missing or has invalid YAML at startup, Symphony does not boot.
 - If a later reload fails, Symphony keeps running with the last known good workflow and logs the
   reload error until the file is fixed.

@@ -3,6 +3,8 @@ defmodule SymphonyElixir.Config do
   Runtime configuration loaded from `WORKFLOW.md`.
   """
 
+  require Logger
+
   alias SymphonyElixir.Config.Schema
   alias SymphonyElixir.Linear.Issue
   alias SymphonyElixir.Workflow
@@ -74,7 +76,7 @@ defmodule SymphonyElixir.Config do
   end
 
   @spec agent_config_for_issue(Issue.t()) :: Schema.Codex.t()
-  def agent_config_for_issue(%Issue{labels: labels}) do
+  def agent_config_for_issue(%Issue{labels: labels} = issue) do
     settings = settings!()
     routing = settings.routing
 
@@ -83,9 +85,32 @@ defmodule SymphonyElixir.Config do
         Map.get(routing.by_label, label)
       end)
 
-    case agent_name do
-      "codex" -> settings.codex
-      name -> Map.get(settings.agents, name, settings.codex)
+    base_config =
+      case agent_name do
+        "codex" -> settings.codex
+        name -> Map.get(settings.agents, name, settings.codex)
+      end
+
+    apply_model_override(base_config, issue)
+  end
+
+  defp apply_model_override(agent_config, issue) do
+    case Issue.model_override(issue) do
+      nil ->
+        agent_config
+
+      model ->
+        updated_command = codex_command_with_model(agent_config.command, model)
+        Logger.info("Model override from label: model=#{model} issue_identifier=#{issue.identifier}")
+        %{agent_config | command: updated_command}
+    end
+  end
+
+  defp codex_command_with_model(base_command, model) do
+    if Regex.match?(~r/--model\s+\S+/, base_command) do
+      Regex.replace(~r/--model\s+\S+/, base_command, "--model #{model}")
+    else
+      Regex.replace(~r/(?<!\S)app-server(?!\S)/, base_command, "--model #{model} app-server", global: false)
     end
   end
 
