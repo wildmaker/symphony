@@ -324,6 +324,8 @@ Top-level keys:
 - `hooks`
 - `agent`
 - `codex`
+- `agents`
+- `routing`
 
 Unknown keys should be ignored for forward compatibility.
 
@@ -443,9 +445,66 @@ fields locally if they want stricter startup checks.
   - Default: `300000` (5 minutes)
   - If `<= 0`, stall detection is disabled.
 
+#### 5.3.7 `agents` (map, optional)
+
+A map of named agent configurations. Each key is a unique agent name (string) and each value is an
+object with the same fields as `codex` (Section 5.3.6), plus one additional field:
+
+- `prompt_template` (string, optional)
+  - Per-agent prompt template that overrides the `WORKFLOW.md` body for issues routed to this agent.
+  - Uses the same Liquid-compatible template syntax as the main prompt body.
+  - Available template variables: `issue` and `attempt` (same as Section 5.4).
+  - When absent or empty, the main `WORKFLOW.md` prompt body is used.
+
+Named agents inherit the same field schema as `codex` (`command`, `approval_policy`,
+`thread_sandbox`, `turn_sandbox_policy`, timeout fields). Invalid agent entries (for example empty
+`command`) should be silently dropped.
+
+Example:
+
+```yaml
+agents:
+  cursor:
+    command: cursor-symphony-bridge
+    approval_policy: never
+    thread_sandbox: danger-full-access
+    prompt_template: |
+      You are a Cursor agent working on {{ issue.identifier }}.
+      {{ issue.description }}
+```
+
+#### 5.3.8 `routing` (object, optional)
+
+Controls which named agent handles each issue.
+
+Fields:
+
+- `default_agent` (string)
+  - Default: `codex`
+  - The agent name used when no label-based routing match is found.
+  - If the name is `codex`, the top-level `codex` config (Section 5.3.6) is used.
+  - Otherwise the name must match a key in `agents` (Section 5.3.7); if it does not, the `codex`
+    config is used as fallback.
+- `by_label` (map `label_string -> agent_name_string`)
+  - Default: empty map.
+  - Maps issue label strings to agent names.
+  - Labels are matched in issue label order; the first match wins.
+  - Label strings are compared after lowercase normalization (per Section 4.2).
+
+Example:
+
+```yaml
+routing:
+  default_agent: codex
+  by_label:
+    use-cursor: cursor
+    frontend: cursor
+```
+
 ### 5.4 Prompt Template Contract
 
-The Markdown body of `WORKFLOW.md` is the per-issue prompt template.
+The Markdown body of `WORKFLOW.md` is the default per-issue prompt template. Named agents may
+override it with their own `prompt_template` field (Section 5.3.7).
 
 Rendering requirements:
 
@@ -579,6 +638,11 @@ This section is intentionally redundant so a coding agent can implement the conf
 - `codex.turn_timeout_ms`: integer, default `3600000`
 - `codex.read_timeout_ms`: integer, default `5000`
 - `codex.stall_timeout_ms`: integer, default `300000`
+- `agents.<name>.command`: shell command string (same schema as `codex.command`)
+- `agents.<name>.prompt_template`: string, optional; per-agent prompt override
+- `agents.<name>.*`: remaining fields follow the `codex` schema
+- `routing.default_agent`: string, default `codex`
+- `routing.by_label`: map `label -> agent_name`, default `{}`
 - `server.port` (extension): integer, optional; enables the optional HTTP server, `0` may be used
   for ephemeral local bind, and CLI `--port` overrides it
 

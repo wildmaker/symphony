@@ -315,6 +315,13 @@ defmodule SymphonyElixir.TestSupport do
             lines
           end
 
+        lines =
+          if agent_config[:prompt_template] do
+            lines ++ ["    prompt_template: #{yaml_value(agent_config[:prompt_template])}"]
+          else
+            lines
+          end
+
         lines
       end)
 
