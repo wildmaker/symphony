@@ -4,7 +4,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   """
 
   require Logger
-  alias SymphonyElixir.{Codex.DynamicTool, Config, PathSafety, SSH}
+  alias SymphonyElixir.{Codex.DynamicTool, Config, JSON, PathSafety, SSH}
 
   @initialize_id 1
   @thread_start_id 2
@@ -708,7 +708,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp dynamic_tool_output(%{"contentItems" => [%{"text" => text} | _]}) when is_binary(text), do: text
-  defp dynamic_tool_output(result), do: Jason.encode!(result, pretty: true)
+  defp dynamic_tool_output(result), do: JSON.encode!(result, pretty: true)
 
   defp dynamic_tool_content_items(output) when is_binary(output) do
     [
@@ -1055,7 +1055,7 @@ defmodule SymphonyElixir.Codex.AppServer do
   defp tool_call_arguments(_params), do: %{}
 
   defp send_message(port, message) do
-    line = Jason.encode!(message) <> "\n"
+    line = JSON.encode!(message) <> "\n"
     Port.command(port, line)
   end
 
