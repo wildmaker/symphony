@@ -9,10 +9,9 @@ defmodule SymphonyElixir.PromptBuilder do
 
   @spec build_prompt(SymphonyElixir.Linear.Issue.t(), keyword()) :: String.t()
   def build_prompt(issue, opts \\ []) do
-    template =
-      Workflow.current()
-      |> prompt_template!()
-      |> parse_template!()
+    raw_template = agent_prompt_template(opts) || workflow_prompt_template()
+
+    template = parse_template!(raw_template)
 
     template
     |> Solid.render!(
@@ -23,6 +22,18 @@ defmodule SymphonyElixir.PromptBuilder do
       @render_opts
     )
     |> IO.iodata_to_binary()
+  end
+
+  defp agent_prompt_template(opts) do
+    case Keyword.get(opts, :agent_config) do
+      %{prompt_template: template} when is_binary(template) and template != "" -> template
+      _ -> nil
+    end
+  end
+
+  defp workflow_prompt_template do
+    Workflow.current()
+    |> prompt_template!()
   end
 
   defp prompt_template!({:ok, %{prompt_template: prompt}}), do: default_prompt(prompt)
