@@ -3,7 +3,7 @@ defmodule SymphonyElixir.Codex.DynamicTool do
   Executes client-side tool calls requested by Codex app-server turns.
   """
 
-  alias SymphonyElixir.Linear.Client
+  alias SymphonyElixir.{JSON, Linear.Client}
 
   @linear_graphql_tool "linear_graphql"
   @linear_graphql_description """
@@ -215,7 +215,7 @@ defmodule SymphonyElixir.Codex.DynamicTool do
   end
 
   defp encode_payload(payload) when is_map(payload) or is_list(payload) do
-    Jason.encode!(payload, pretty: true)
+    JSON.encode!(payload, pretty: true)
   end
 
   defp encode_payload(payload), do: inspect(payload)
