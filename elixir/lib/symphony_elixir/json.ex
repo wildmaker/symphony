@@ -25,9 +25,9 @@ defmodule SymphonyElixir.JSON do
   def sanitize(values) when is_list(values), do: Enum.map(values, &sanitize/1)
 
   def sanitize(values) when is_map(values) do
-    Map.new(values, fn {key, value} ->
+    for {key, value} <- values, into: %{} do
       {sanitize_map_key(key), sanitize(value)}
-    end)
+    end
   end
 
   def sanitize(value), do: value
