@@ -1,0 +1,25 @@
+# !!!INVESTIGATE!!!
+
+# PROBLEM DESCRIPTION
+
+# UPDATES
+
+# REPRODUCTION
+
+# OBSERVATIONS
+
+# TEST / NON-UNIT VERIFICATION
+
+# PROPOSALS
+
+- No.1 <proposal title> [UNTESTED]
+
+## No.1 <proposal title>
+
+### CODE CHANGE
+
+### EXPECTED RESULT
+
+### CONFIRMED / DENIED
+
+# !!!FINISHED!!!
