@@ -24,18 +24,13 @@ hooks:
       cd elixir && mise trust && mise exec -- mix deps.get
     fi
   before_remove: |
-    branch=$(git branch --show-current 2>/dev/null)
-    if [ -n "$branch" ] && command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
-      gh pr list --head "$branch" --state open --json number --jq '.[].number' | while read -r pr; do
-        [ -n "$pr" ] && gh pr close "$pr" --comment "Closing because the Linear issue for branch $branch entered a terminal state without merge."
-      done
-    fi
+    cd elixir && mise exec -- mix workspace.before_remove
 agent:
   max_concurrent_agents: 10
   max_turns: 20
 agents:
   codex:
-    command: codex --config shell_environment_policy.inherit=all --config model_reasoning_effort=xhigh --model gpt-5.3-codex app-server
+    command: codex --config shell_environment_policy.inherit=all --config 'model="gpt-5.5"' --config model_reasoning_effort=xhigh app-server
     approval_policy: never
     thread_sandbox: danger-full-access
     turn_sandbox_policy:

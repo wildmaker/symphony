@@ -192,6 +192,8 @@ defmodule SymphonyElixir.Codex.AppServer do
     if is_nil(executable) do
       {:error, :bash_not_found}
     else
+      command = local_launch_command(workspace)
+
       port =
         Port.open(
           {:spawn_executable, String.to_charlist(executable)},
@@ -199,7 +201,7 @@ defmodule SymphonyElixir.Codex.AppServer do
             :binary,
             :exit_status,
             :stderr_to_stdout,
-            args: [~c"-lc", String.to_charlist(Config.settings!().codex.command)],
+            args: [~c"-lc", String.to_charlist(command)],
             cd: String.to_charlist(workspace),
             line: @port_line_bytes
           ]
@@ -217,9 +219,14 @@ defmodule SymphonyElixir.Codex.AppServer do
   defp remote_launch_command(workspace) when is_binary(workspace) do
     [
       "cd #{shell_escape(workspace)}",
-      "exec #{Config.settings!().codex.command}"
+      local_launch_command(workspace)
     ]
     |> Enum.join(" && ")
+  end
+
+  defp local_launch_command(workspace) do
+    scripts_path = Path.join(workspace, "scripts")
+    "PATH=#{shell_escape(scripts_path)}:$PATH exec #{Config.settings!().codex.command}"
   end
 
   defp port_metadata(port, worker_host) when is_port(port) do
@@ -1058,6 +1065,8 @@ defmodule SymphonyElixir.Codex.AppServer do
     line = JSON.encode!(message) <> "\n"
     Port.command(port, line)
   end
+
+  defp needs_input?("mcpServer/elicitation/request", payload) when is_map(payload), do: true
 
   defp needs_input?(method, payload)
        when is_binary(method) and is_map(payload) do

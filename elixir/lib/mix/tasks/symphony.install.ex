@@ -37,29 +37,36 @@ defmodule Mix.Tasks.Symphony.Install do
       File.regular?(path) and not String.starts_with?(name, ".") and not String.ends_with?(name, ".pyc")
     end)
     |> Enum.reject(fn name -> name == "__pycache__" end)
-    |> Enum.each(fn name ->
-      source = Path.join(scripts_dir, name)
-      target = Path.join(@install_dir, name)
-
-      case File.read_link(target) do
-        {:ok, ^source} ->
-          Mix.shell().info("  already linked: #{name}")
-
-        {:ok, _old} ->
-          File.rm!(target)
-          File.ln_s!(source, target)
-          Mix.shell().info("  updated link:   #{name} -> #{source}")
-
-        {:error, _} ->
-          if File.exists?(target) do
-            Mix.shell().error("  skipped:        #{name} (#{target} exists and is not a symlink)")
-          else
-            File.ln_s!(source, target)
-            Mix.shell().info("  linked:         #{name} -> #{source}")
-          end
-      end
-    end)
+    |> Enum.each(&install_script(scripts_dir, &1))
 
     Mix.shell().info("\nSymphony scripts installed to #{@install_dir}")
+  end
+
+  defp install_script(scripts_dir, name) do
+    source = Path.join(scripts_dir, name)
+    target = Path.join(@install_dir, name)
+
+    case File.read_link(target) do
+      {:ok, ^source} -> Mix.shell().info("  already linked: #{name}")
+      {:ok, _old} -> relink_script(name, source, target)
+      {:error, _} -> link_new_script(name, source, target)
+    end
+  end
+
+  defp relink_script(name, source, target) do
+    File.rm!(target)
+    File.ln_s!(source, target)
+    Mix.shell().info("  updated link:   #{name} -> #{source}")
+  end
+
+  defp link_new_script(name, source, target) do
+    case File.exists?(target) do
+      true ->
+        Mix.shell().error("  skipped:        #{name} (#{target} exists and is not a symlink)")
+
+      false ->
+        File.ln_s!(source, target)
+        Mix.shell().info("  linked:         #{name} -> #{source}")
+    end
   end
 end

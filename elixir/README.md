@@ -26,6 +26,11 @@ skills can make raw Linear GraphQL calls.
 If a claimed issue moves to a terminal state (`Done`, `Closed`, `Cancelled`, or `Duplicate`),
 Symphony stops the active agent for that issue and cleans up matching workspaces.
 
+If Codex reports that operator input, approval, or MCP elicitation is required, Symphony keeps the
+issue claimed and exposes it as blocked in the runtime state, JSON API, and dashboard. Blocked
+entries are in memory only; restarting the orchestrator clears that blocked map, so any still-active
+Linear issue can become a dispatch candidate again after restart.
+
 ## How to use it
 
 1. Make sure your codebase is set up to work well with agents: see
@@ -164,7 +169,7 @@ hooks:
   after_create: |
     git clone --depth 1 "$SOURCE_REPO_URL" .
 codex:
-  command: "$CODEX_BIN app-server --model gpt-5.3-codex"
+  command: "$CODEX_BIN --config 'model=\"gpt-5.5\"' app-server"
 ```
 
 ### Per-issue model override via labels
