@@ -15,7 +15,7 @@ Usage (from WORKFLOW.md agents section)::
 
     agents:
       cursor:
-        command: cursor-symphony-bridge --model gpt-5.4
+        command: cursor-symphony-bridge
 
 Supports ``--model`` flag or ``CURSOR_MODEL`` env var to select the
 underlying LLM.  The flag takes precedence over the env var.

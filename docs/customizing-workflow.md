@@ -165,9 +165,9 @@ Define multiple agents and route issues by Linear label:
 ```yaml
 agents:
   codex:
-    command: codex --model gpt-5.3-codex app-server
+    command: codex app-server
   cursor:
-    command: cursor-symphony-bridge --model opus-4.6
+    command: cursor-symphony-bridge
 routing:
   default_agent: codex
   by_label:
@@ -183,9 +183,10 @@ that issue without changing the global config or defining a new agent:
 - Label `model-gpt-5.3-codex` → agent runs with `--model gpt-5.3-codex`
 
 If the base command already has `--model`, the value is replaced. If it has
-no `--model` flag, one is injected before `app-server`. This composes with
-multi-agent routing: the agent is selected first, then the model override
-is applied to that agent's command.
+no `--model` flag, one is injected before `app-server`; commands without an
+`app-server` token receive `--model <model>` at the end. This composes with
+multi-agent routing: the agent is selected first, then the model override is
+applied to that agent's command.
 
 ### Hooks
 

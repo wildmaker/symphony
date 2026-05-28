@@ -27,7 +27,7 @@ defmodule SymphonyElixir.Codex.AppServer do
 
   @spec run(Path.t(), String.t(), map(), keyword()) :: {:ok, map()} | {:error, term()}
   def run(workspace, prompt, issue, opts \\ []) do
-    with {:ok, session} <- start_session(workspace, opts) do
+    with {:ok, session} <- start_session(workspace, Keyword.put_new(opts, :issue, issue)) do
       try do
         run_turn(session, prompt, issue, opts)
       after
@@ -45,7 +45,7 @@ defmodule SymphonyElixir.Codex.AppServer do
          {:ok, port} <- start_port(expanded_workspace, worker_host, issue) do
       metadata = port_metadata(port, worker_host)
 
-      with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
+      with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host, issue),
            {:ok, thread_id} <- do_start_session(port, expanded_workspace, session_policies) do
         {:ok,
          %{
@@ -197,7 +197,7 @@ defmodule SymphonyElixir.Codex.AppServer do
         [
           app_server_env_script(issue),
           workspace_path_script(workspace),
-          local_launch_command()
+          local_launch_command(issue)
         ]
         |> Enum.reject(&(&1 == ""))
         |> Enum.join("\n")
@@ -230,14 +230,21 @@ defmodule SymphonyElixir.Codex.AppServer do
       "cd #{shell_escape(workspace)}",
       app_server_env_script(issue),
       workspace_path_script(workspace),
-      local_launch_command()
+      local_launch_command(issue)
     ]
     |> Enum.reject(&(&1 == ""))
     |> Enum.join("\n")
   end
 
-  defp local_launch_command do
-    "exec #{Config.settings!().codex.command}"
+  defp local_launch_command(issue) do
+    "exec #{codex_command_for_issue(issue)}"
+  end
+
+  defp codex_command_for_issue(issue) do
+    case issue do
+      %SymphonyElixir.Linear.Issue{} -> Config.agent_config_for_issue(issue).command
+      _ -> Config.settings!().codex.command
+    end
   end
 
   defp port_metadata(port, worker_host) when is_port(port) do
@@ -280,12 +287,12 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
-  defp session_policies(workspace, nil) do
-    Config.codex_runtime_settings(workspace)
+  defp session_policies(workspace, nil, issue) do
+    Config.codex_runtime_settings(workspace, issue: issue)
   end
 
-  defp session_policies(workspace, worker_host) when is_binary(worker_host) do
-    Config.codex_runtime_settings(workspace, remote: true)
+  defp session_policies(workspace, worker_host, issue) when is_binary(worker_host) do
+    Config.codex_runtime_settings(workspace, remote: true, issue: issue)
   end
 
   defp do_start_session(port, workspace, session_policies) do

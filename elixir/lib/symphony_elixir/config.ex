@@ -92,7 +92,7 @@ defmodule SymphonyElixir.Config do
 
     base_config =
       case agent_name do
-        "codex" -> settings.codex
+        "codex" -> Map.get(settings.agents, "codex", settings.codex)
         name -> Map.get(settings.agents, name, settings.codex)
       end
 
@@ -112,10 +112,15 @@ defmodule SymphonyElixir.Config do
   end
 
   defp codex_command_with_model(base_command, model) do
-    if Regex.match?(~r/--model\s+\S+/, base_command) do
-      Regex.replace(~r/--model\s+\S+/, base_command, "--model #{model}")
-    else
-      Regex.replace(~r/(?<!\S)app-server(?!\S)/, base_command, "--model #{model} app-server", global: false)
+    cond do
+      Regex.match?(~r/--model\s+\S+/, base_command) ->
+        Regex.replace(~r/--model\s+\S+/, base_command, "--model #{model}")
+
+      Regex.match?(~r/(?<!\S)app-server(?!\S)/, base_command) ->
+        Regex.replace(~r/(?<!\S)app-server(?!\S)/, base_command, "--model #{model} app-server", global: false)
+
+      true ->
+        "#{base_command} --model #{model}"
     end
   end
 
@@ -151,10 +156,16 @@ defmodule SymphonyElixir.Config do
     with {:ok, settings} <- settings() do
       with {:ok, turn_sandbox_policy} <-
              Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
+        agent_config =
+          case Keyword.get(opts, :issue) do
+            %Issue{} = issue -> agent_config_for_issue(issue)
+            _ -> settings.codex
+          end
+
         {:ok,
          %{
-           approval_policy: settings.codex.approval_policy,
-           thread_sandbox: settings.codex.thread_sandbox,
+           approval_policy: agent_config.approval_policy,
+           thread_sandbox: agent_config.thread_sandbox,
            turn_sandbox_policy: turn_sandbox_policy
          }}
       end

@@ -76,6 +76,66 @@ defmodule SymphonyElixir.AppServerTest do
     end
   end
 
+  test "app server launches routed issue agent command" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-app-server-routed-command-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-1001")
+      codex_binary = Path.join(test_root, "routed-codex")
+      trace_file = Path.join(test_root, "routed-command.trace")
+
+      File.mkdir_p!(workspace)
+
+      File.write!(codex_binary, """
+      #!/bin/sh
+      printf 'routed\\n' > #{trace_file}
+      count=0
+      while IFS= read -r _line; do
+        count=$((count + 1))
+        case "$count" in
+          1) printf '%s\\n' '{"id":1,"result":{}}' ;;
+          2) ;;
+          3) printf '%s\\n' '{"id":2,"result":{"thread":{"id":"thread-routed"}}}' ;;
+          4)
+            printf '%s\\n' '{"id":3,"result":{"turn":{"id":"turn-routed"}}}'
+            printf '%s\\n' '{"method":"turn/completed"}'
+            exit 0
+            ;;
+        esac
+      done
+      """)
+
+      File.chmod!(codex_binary, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        codex_command: "/bin/sh -c 'exit 42'",
+        agents: %{codex: [command: "#{codex_binary} app-server"]},
+        routing_default: "codex"
+      )
+
+      issue = %Issue{
+        id: "issue-routed-command",
+        identifier: "MT-1001",
+        title: "Use routed command",
+        description: "Ensure app-server launches the routed agent config",
+        state: "In Progress",
+        url: "https://example.org/issues/MT-1001",
+        labels: []
+      }
+
+      assert {:ok, _result} = AppServer.run(workspace, "Run routed command", issue)
+      assert File.read!(trace_file) == "routed\n"
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
   test "app server passes explicit turn sandbox policies through unchanged" do
     test_root =
       Path.join(

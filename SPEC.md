@@ -1190,9 +1190,9 @@ internally — Symphony's AppServer sees no difference from a standard app-serve
 
 ### 10.8.2 Per-Issue Model Override via Labels
 
-Issue labels with the prefix `model-` override the `--model` flag in the resolved agent command for
-that issue. This allows per-ticket model selection without changing the global `codex.command` or
-defining separate named agents for each model.
+Issue labels with the prefix `model-` override the resolved agent command for that issue. This
+allows per-ticket model selection while the default command can still rely on the underlying agent
+CLI's default model.
 
 Label convention:
 
@@ -1209,6 +1209,8 @@ Command rewriting rules:
 - If the resolved agent command already contains `--model <value>`, the value is replaced with the
   label-derived model.
 - If the command does not contain `--model`, `--model <model>` is inserted before `app-server`.
+- If the command does not contain an `app-server` token, `--model <model>` is appended to the
+  command.
 
 The model override is applied after label-based agent routing (Section 10.8.1), so it composes with
 named agent selection. For example, an issue with labels `["use-cursor", "model-o3-pro"]` would

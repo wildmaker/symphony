@@ -174,17 +174,18 @@ hooks:
     base_branch="${SYMPHONY_BASE_BRANCH:-main}"
     git clone --depth 1 --branch "$base_branch" "$SOURCE_REPO_URL" .
 codex:
-  command: "$CODEX_BIN --config 'model=\"gpt-5.5\"' app-server"
+  command: "$CODEX_BIN app-server"
 ```
 
 ### Per-issue model override via labels
 
-Issue labels with the prefix `model-` override the `--model` flag in the agent command for that
-issue. For example, adding label `model-o3-pro` to a Linear ticket causes Symphony to launch Codex
-with `--model o3-pro` instead of whatever model is configured in `codex.command`.
+Issue labels with the prefix `model-` override the agent command for that issue. For example,
+adding label `model-o3-pro` to a Linear ticket causes Symphony to launch Codex with
+`--model o3-pro` instead of relying on the Codex CLI default model.
 
 - If the base command contains `--model <value>`, the value is replaced.
 - If the base command has no `--model` flag, `--model <model>` is inserted before `app-server`.
+- If the base command has no `app-server` token, `--model <model>` is appended to the command.
 - If multiple `model-*` labels exist, the first is used and a warning is logged.
 - The override composes with `routing.by_label` agent selection: agent routing resolves first, then
   the model override is applied to the resolved agent's command.

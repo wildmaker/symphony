@@ -31,7 +31,7 @@ To route issues to Cursor, configure agents and routing in your `WORKFLOW.md`:
 ```yaml
 agents:
   cursor:
-    command: cursor-symphony-bridge --model gpt-5.4
+    command: cursor-symphony-bridge
 routing:
   default_agent: cursor
   # or route by label:
@@ -39,10 +39,9 @@ routing:
     use-cursor: cursor
 ```
 
-The bridge forwards `--model` to the Cursor CLI at startup, so you can pin a
-specific model per agent definition. If you prefer an environment default,
-`CURSOR_MODEL=gpt-5.4` is also supported, but an explicit `--model` in
-`command:` takes precedence.
+By default the bridge lets the Cursor CLI choose its own model. Add a
+`model-*` issue label for per-ticket overrides, or pass `--model`/set
+`CURSOR_MODEL` when you intentionally want a fixed Cursor model.
 
 Requires the Cursor CLI (`agent`) on PATH and `CURSOR_API_KEY` set in the
 environment.

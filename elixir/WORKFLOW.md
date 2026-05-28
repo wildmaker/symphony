@@ -31,13 +31,13 @@ agent:
   max_turns: 20
 agents:
   codex:
-    command: codex --config shell_environment_policy.inherit=all --config 'model="gpt-5.5"' --config model_reasoning_effort=xhigh app-server
+    command: codex --config shell_environment_policy.inherit=all --config model_reasoning_effort=xhigh app-server
     approval_policy: never
     thread_sandbox: danger-full-access
     turn_sandbox_policy:
       type: dangerFullAccess
   cursor:
-    command: cursor-symphony-bridge --model gpt-5.4
+    command: cursor-symphony-bridge
     approval_policy: never
     thread_sandbox: danger-full-access
 routing:

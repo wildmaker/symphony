@@ -1679,7 +1679,7 @@ defmodule SymphonyElixir.CoreTest do
 
       write_workflow_file!(Workflow.workflow_file_path(),
         workspace_root: workspace_root,
-        codex_command: "#{codex_binary} --config 'model=\"gpt-5.5\"' app-server"
+        codex_command: "#{codex_binary} --config model_reasoning_effort=xhigh app-server"
       )
 
       issue = %Issue{
@@ -1698,7 +1698,7 @@ defmodule SymphonyElixir.CoreTest do
       lines = String.split(trace, "\n", trim: true)
 
       assert argv_line = Enum.find(lines, fn line -> String.starts_with?(line, "ARGV:") end)
-      assert String.contains?(argv_line, "--config model=\"gpt-5.5\" app-server")
+      assert String.contains?(argv_line, "--config model_reasoning_effort=xhigh app-server")
       refute String.contains?(argv_line, "--ask-for-approval never")
       refute String.contains?(argv_line, "--sandbox danger-full-access")
     after
@@ -1821,6 +1821,32 @@ defmodule SymphonyElixir.CoreTest do
 
     agent_config = Config.agent_config_for_issue(issue)
     assert agent_config.command == "cursor-symphony-bridge"
+  end
+
+  test "codex_runtime_settings uses routed issue agent policy" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agents: %{
+        codex: [
+          command: "codex app-server",
+          approval_policy: "never",
+          thread_sandbox: "danger-full-access"
+        ]
+      },
+      routing_default: "codex"
+    )
+
+    issue = %Issue{
+      id: "issue-runtime-policy",
+      identifier: "MT-301A",
+      title: "Use routed policy",
+      description: "Runtime should use the routed agent config",
+      state: "Todo",
+      labels: []
+    }
+
+    assert {:ok, runtime_settings} = Config.codex_runtime_settings("/tmp/workspace", issue: issue)
+    assert runtime_settings.approval_policy == "never"
+    assert runtime_settings.thread_sandbox == "danger-full-access"
   end
 
   test "agent_config_for_issue falls back to codex when label maps to nonexistent agent" do
@@ -2033,7 +2059,7 @@ defmodule SymphonyElixir.CoreTest do
 
   test "agent_config_for_issue model override works with routed agents" do
     write_workflow_file!(Workflow.workflow_file_path(),
-      agents: %{cursor: [command: "cursor --model default-model app-server"]},
+      agents: %{cursor: [command: "cursor-symphony-bridge --model default-model"]},
       routing_by_label: %{"use-cursor" => "cursor"}
     )
 
@@ -2046,7 +2072,25 @@ defmodule SymphonyElixir.CoreTest do
     }
 
     agent_config = Config.agent_config_for_issue(issue)
-    assert agent_config.command == "cursor --model o3-pro app-server"
+    assert agent_config.command == "cursor-symphony-bridge --model o3-pro"
+  end
+
+  test "agent_config_for_issue appends model override for commands without app-server" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      agents: %{cursor: [command: "cursor-symphony-bridge"]},
+      routing_by_label: %{"use-cursor" => "cursor"}
+    )
+
+    issue = %Issue{
+      id: "issue-model-append-routed",
+      identifier: "MT-409A",
+      title: "Model override appends on routed command",
+      state: "Todo",
+      labels: ["use-cursor", "model-o3-pro"]
+    }
+
+    agent_config = Config.agent_config_for_issue(issue)
+    assert agent_config.command == "cursor-symphony-bridge --model o3-pro"
   end
 
   test "agent_config_for_issue model inject only replaces first whole-word app-server" do

@@ -218,7 +218,7 @@ If the user wants Cursor as an agent backend (in addition to or instead of Codex
 ```yaml
 agents:
   codex:
-    command: codex --config shell_environment_policy.inherit=all --config model_reasoning_effort=xhigh --model gpt-5.3-codex app-server
+    command: codex --config shell_environment_policy.inherit=all --config model_reasoning_effort=xhigh app-server
     approval_policy: never
     thread_sandbox: danger-full-access
     turn_sandbox_policy:
