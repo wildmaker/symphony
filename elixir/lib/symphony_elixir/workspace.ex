@@ -238,7 +238,12 @@ defmodule SymphonyElixir.Workspace do
             run_hook(
               command,
               workspace,
-              %{issue_id: nil, issue_identifier: Path.basename(workspace)},
+              %{
+                issue_id: nil,
+                issue_identifier: Path.basename(workspace),
+                branch_name: nil,
+                base_branch: nil
+              },
               "before_remove",
               nil
             )
@@ -263,6 +268,15 @@ defmodule SymphonyElixir.Workspace do
             remote_shell_assign("workspace", workspace),
             "if [ -d \"$workspace\" ]; then",
             "  cd \"$workspace\"",
+            indent_script(
+              hook_export_script(%{
+                issue_id: nil,
+                issue_identifier: Path.basename(workspace),
+                branch_name: nil,
+                base_branch: nil
+              }),
+              "  "
+            ),
             "  #{command}",
             "fi"
           ]
@@ -274,7 +288,12 @@ defmodule SymphonyElixir.Workspace do
             handle_hook_command_result(
               {output, status},
               workspace,
-              %{issue_id: nil, issue_identifier: Path.basename(workspace)},
+              %{
+                issue_id: nil,
+                issue_identifier: Path.basename(workspace),
+                branch_name: nil,
+                base_branch: nil
+              },
               "before_remove"
             )
 
@@ -298,7 +317,11 @@ defmodule SymphonyElixir.Workspace do
 
     task =
       Task.async(fn ->
-        System.cmd("sh", ["-lc", command], cd: workspace, stderr_to_stdout: true)
+        System.cmd("sh", ["-lc", command],
+          cd: workspace,
+          stderr_to_stdout: true,
+          env: hook_env(issue_context)
+        )
       end)
 
     case Task.yield(task, timeout_ms) do
@@ -319,7 +342,15 @@ defmodule SymphonyElixir.Workspace do
 
     Logger.info("Running workspace hook hook=#{hook_name} #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=#{worker_host}")
 
-    case run_remote_command(worker_host, "cd #{shell_escape(workspace)} && #{command}", timeout_ms) do
+    script =
+      [
+        "cd #{shell_escape(workspace)}",
+        hook_export_script(issue_context),
+        command
+      ]
+      |> Enum.join("\n")
+
+    case run_remote_command(worker_host, script, timeout_ms) do
       {:ok, cmd_result} ->
         handle_hook_command_result(cmd_result, workspace, issue_context, hook_name)
 
@@ -453,28 +484,59 @@ defmodule SymphonyElixir.Workspace do
     "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
   end
 
+  defp hook_env(issue_context) do
+    [
+      {"SYMPHONY_ISSUE_ID", issue_context.issue_id || ""},
+      {"SYMPHONY_ISSUE_IDENTIFIER", issue_context.issue_identifier || "issue"},
+      {"SYMPHONY_BRANCH_NAME", issue_context.branch_name || ""},
+      {"SYMPHONY_BASE_BRANCH", issue_context.base_branch || ""}
+    ]
+  end
+
+  defp hook_export_script(issue_context) do
+    issue_context
+    |> hook_env()
+    |> Enum.map_join("\n", fn {name, value} -> "export #{name}=#{shell_escape(value)}" end)
+  end
+
+  defp indent_script(script, prefix) when is_binary(script) and is_binary(prefix) do
+    script
+    |> String.split("\n")
+    |> Enum.map_join("\n", &(prefix <> &1))
+  end
+
   defp worker_host_for_log(nil), do: "local"
   defp worker_host_for_log(worker_host), do: worker_host
 
-  defp issue_context(%{id: issue_id, identifier: identifier}) do
+  defp issue_context(%{id: issue_id, identifier: identifier} = issue) do
     %{
       issue_id: issue_id,
-      issue_identifier: identifier || "issue"
+      issue_identifier: identifier || "issue",
+      branch_name: issue_context_value(issue, :branch_name),
+      base_branch: issue_context_value(issue, :base_branch)
     }
   end
 
   defp issue_context(identifier) when is_binary(identifier) do
     %{
       issue_id: nil,
-      issue_identifier: identifier
+      issue_identifier: identifier,
+      branch_name: nil,
+      base_branch: nil
     }
   end
 
   defp issue_context(_identifier) do
     %{
       issue_id: nil,
-      issue_identifier: "issue"
+      issue_identifier: "issue",
+      branch_name: nil,
+      base_branch: nil
     }
+  end
+
+  defp issue_context_value(issue, key) when is_atom(key) do
+    Map.get(issue, key) || Map.get(issue, to_string(key))
   end
 
   defp issue_log_context(%{issue_id: issue_id, issue_identifier: issue_identifier}) do

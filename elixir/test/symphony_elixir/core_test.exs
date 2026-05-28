@@ -105,10 +105,15 @@ defmodule SymphonyElixir.CoreTest do
 
     hooks = Map.get(config, "hooks", %{})
     assert is_map(hooks)
-    assert Map.get(hooks, "after_create") =~ "git clone --depth 1 https://github.com/openai/symphony ."
+    assert Map.get(hooks, "after_create") =~ ~s(base_branch="${SYMPHONY_BASE_BRANCH:-main}")
+
+    assert Map.get(hooks, "after_create") =~
+             ~s(git clone --depth 1 --branch "$base_branch" https://github.com/openai/symphony .)
+
     assert Map.get(hooks, "after_create") =~ "cd elixir && mise trust"
     assert Map.get(hooks, "after_create") =~ "mise exec -- mix deps.get"
-    assert Map.get(hooks, "before_remove") =~ "cd elixir && mise exec -- mix workspace.before_remove"
+    assert Map.get(hooks, "before_remove") =~ "gh pr list --head"
+    assert Map.get(hooks, "before_remove") =~ "gh pr close"
 
     assert String.trim(prompt) != ""
     assert is_binary(Config.workflow_prompt())
@@ -767,7 +772,7 @@ defmodule SymphonyElixir.CoreTest do
 
   test "prompt builder renders issue and attempt values from workflow template" do
     workflow_prompt =
-      "Ticket {{ issue.identifier }} {{ issue.title }} labels={{ issue.labels }} attempt={{ attempt }}"
+      "Ticket {{ issue.identifier }} {{ issue.title }} base={{ issue.base_branch }} labels={{ issue.labels }} attempt={{ attempt }}"
 
     write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
 
@@ -776,6 +781,7 @@ defmodule SymphonyElixir.CoreTest do
       title: "Refactor backend request path",
       description: "Replace transport layer",
       state: "Todo",
+      base_branch: "release/1.2",
       url: "https://example.org/issues/S-1",
       labels: ["backend"]
     }
@@ -783,6 +789,7 @@ defmodule SymphonyElixir.CoreTest do
     prompt = PromptBuilder.build_prompt(issue, attempt: 3)
 
     assert prompt =~ "Ticket S-1 Refactor backend request path"
+    assert prompt =~ "base=release/1.2"
     assert prompt =~ "labels=backend"
     assert prompt =~ "attempt=3"
   end
@@ -952,6 +959,7 @@ defmodule SymphonyElixir.CoreTest do
       title: "Use rich templates for WORKFLOW.md",
       description: "Render with rich template variables",
       state: "In Progress",
+      base_branch: "release/2026.05",
       url: "https://example.org/issues/MT-616/use-rich-templates-for-workflowmd",
       labels: ["templating", "workflow"]
     }
@@ -965,6 +973,7 @@ defmodule SymphonyElixir.CoreTest do
     assert prompt =~ "Identifier: MT-616"
     assert prompt =~ "Title: Use rich templates for WORKFLOW.md"
     assert prompt =~ "Current status: In Progress"
+    assert prompt =~ "Base branch: release/2026.05"
     assert prompt =~ "https://example.org/issues/MT-616/use-rich-templates-for-workflowmd"
     assert prompt =~ "This is an unattended orchestration session."
     assert prompt =~ "Only stop early for a true blocker"
@@ -1016,6 +1025,7 @@ defmodule SymphonyElixir.CoreTest do
 
       File.write!(codex_binary, """
       #!/bin/sh
+      printf '%s' "$SYMPHONY_BASE_BRANCH" > app_server_base_branch.txt
       count=0
       while IFS= read -r line; do
         count=$((count + 1))
@@ -1052,6 +1062,7 @@ defmodule SymphonyElixir.CoreTest do
         title: "Smoke test",
         description: "Run and keep workspace",
         state: "In Progress",
+        base_branch: "release/agent-env",
         url: "https://example.org/issues/S-99",
         labels: ["backend"]
       }
@@ -1072,6 +1083,7 @@ defmodule SymphonyElixir.CoreTest do
       workspace = Path.join(workspace_root, workspace_name)
       assert File.exists?(workspace)
       assert File.exists?(Path.join(workspace, "README.md"))
+      assert File.read!(Path.join(workspace, "app_server_base_branch.txt")) == "release/agent-env"
     after
       File.rm_rf(test_root)
     end

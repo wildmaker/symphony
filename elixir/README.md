@@ -152,6 +152,10 @@ Notes:
   identifier, title, and body.
 - Use `hooks.after_create` to bootstrap a fresh workspace. For a Git-backed repo, you can run
   `git clone ... .` there, along with any other setup commands you need.
+- A Linear ticket can set a non-default base branch with a description line such as
+  `Base branch: release/1.2` or `基准分支: release/1.2`. Symphony exposes it as
+  `issue.base_branch` in prompts and `SYMPHONY_BASE_BRANCH` in hooks and agent processes;
+  use `main` when it is empty.
 - If a hook needs `mise exec` inside a freshly cloned workspace, trust the repo config and fetch
   the project dependencies in `hooks.after_create` before invoking `mise` later from other hooks.
 - `tracker.api_key` reads from `LINEAR_API_KEY` when unset or when value is `$LINEAR_API_KEY`.
@@ -167,7 +171,8 @@ workspace:
   root: $SYMPHONY_WORKSPACE_ROOT
 hooks:
   after_create: |
-    git clone --depth 1 "$SOURCE_REPO_URL" .
+    base_branch="${SYMPHONY_BASE_BRANCH:-main}"
+    git clone --depth 1 --branch "$base_branch" "$SOURCE_REPO_URL" .
 codex:
   command: "$CODEX_BIN --config 'model=\"gpt-5.5\"' app-server"
 ```

@@ -180,7 +180,8 @@ Replace entirely — the default clones the Symphony repo itself:
 ```yaml
 hooks:
   after_create: |
-    git clone --depth 1 <user's repo clone URL> .
+    base_branch="${SYMPHONY_BASE_BRANCH:-main}"
+    git clone --depth 1 --branch "$base_branch" <user's repo clone URL> .
     <user's setup commands, if any>
 ```
 
@@ -190,7 +191,8 @@ skills right after cloning the project:
 ```yaml
 hooks:
   after_create: |
-    git clone --depth 1 <user's repo clone URL> .
+    base_branch="${SYMPHONY_BASE_BRANCH:-main}"
+    git clone --depth 1 --branch "$base_branch" <user's repo clone URL> .
     tmp_skills_dir="$(mktemp -d)"
     git clone --depth 1 --branch <ref-or-branch> <skills-repo-url> "$tmp_skills_dir"
     rm -rf .agents/skills
@@ -202,6 +204,8 @@ hooks:
 
 Rules:
 - Keep project clone first (`git clone ... .`) so code always matches the issue branch.
+- Use `SYMPHONY_BASE_BRANCH` with a `main` fallback so tickets can explicitly
+  request a different base via `Base branch: <branch>`.
 - Central repo is for skills distribution only unless the user explicitly wants more.
 - Ensure the central skills repo clone URL also works non-interactively.
 
@@ -276,18 +280,62 @@ Before starting Symphony, use Linear MCP to list all tickets in active states (`
 
 Show the list to the user and ask if they're comfortable with all of these being worked on. Move anything they're not ready to hand off back to Backlog.
 
+## Runtime deployment handoff
+
+This setup skill prepares the repo and global Symphony install. Do not grow it
+into a long-running runtime manager. For start/stop/restart/status/logs,
+delegate to a dedicated runtime/deploy skill when available.
+
+At the end of setup, produce these runtime inputs for the runtime/deploy skill
+or for the user:
+
+- `TARGET_REPO`: absolute path to the configured target repository.
+- `WORKFLOW_FILE`: usually `$TARGET_REPO/WORKFLOW.md`.
+- `SYMPHONY_HOME`: global Symphony checkout, default `$HOME/.local/share/symphony`.
+- `SYMPHONY_PORT`: unique dashboard/API port for this repo runtime.
+- `SYMPHONY_LOGS_ROOT`: unique logs root for this repo runtime.
+- `SYMPHONY_WORKSPACE_ROOT`: unique workspace root for this repo runtime.
+- `tracker.project_slug`: Linear project slug used by this runtime.
+
+Multi-runtime rules:
+
+- Use one global `SYMPHONY_HOME`, but separate runtime state per target repo.
+- Do not run two Symphony runtimes against the same Linear ticket pool unless
+  they are intentionally split by project, assignee, or states.
+- Use distinct `--port`, `--logs-root`, and `workspace.root` values for every
+  concurrently running repo runtime.
+- Before starting a runtime, check for an existing process already using the
+  same `WORKFLOW_FILE`, port, or logs root.
+
 ## Run
 
 ```bash
+TARGET_REPO="<absolute path to target repo>"
 SYMPHONY_HOME="${SYMPHONY_HOME:-$HOME/.local/share/symphony}"
+WORKFLOW_FILE="$TARGET_REPO/WORKFLOW.md"
+
+# Pick stable, repo-specific values. The port must be unique per runtime.
+repo_key="$(basename "$TARGET_REPO" | tr -c 'A-Za-z0-9._-' '-')"
+SYMPHONY_PORT="${SYMPHONY_PORT:-4111}"
+SYMPHONY_LOGS_ROOT="${SYMPHONY_LOGS_ROOT:-$HOME/.cache/symphony/$repo_key}"
+SYMPHONY_WORKSPACE_ROOT="${SYMPHONY_WORKSPACE_ROOT:-$HOME/code/symphony-workspaces/$repo_key}"
+
+mkdir -p "$SYMPHONY_LOGS_ROOT" "$SYMPHONY_WORKSPACE_ROOT"
+
+# WORKFLOW.md should use workspace.root: $SYMPHONY_WORKSPACE_ROOT for this to
+# isolate workspaces per repo runtime.
 cd "$SYMPHONY_HOME/elixir"
-mise exec -- ./bin/symphony <repo-path>/WORKFLOW.md \
+SYMPHONY_WORKSPACE_ROOT="$SYMPHONY_WORKSPACE_ROOT" \
+mise exec -- ./bin/symphony "$WORKFLOW_FILE" \
+  --port "$SYMPHONY_PORT" \
+  --logs-root "$SYMPHONY_LOGS_ROOT" \
   --i-understand-that-this-will-be-running-without-the-usual-guardrails
 ```
 
 The guardrails flag is required — Symphony runs Codex agents with `danger-full-access` sandboxing.
 
-Add `--port <port>` to enable the Phoenix web dashboard.
+Prefer running this command under a process supervisor, tmux session, or future
+runtime/deploy skill rather than leaving an unmanaged shell process behind.
 
 ## Verify
 
@@ -299,6 +347,8 @@ Have the user push a test ticket to Todo in Linear. Watch for the first worker t
 - [ ] Repo clone URL works non-interactively?
 - [ ] Chosen skills source is pushed? (project-local `.agents/skills/` or central skills repo) and `WORKFLOW.md` pushed?
 - [ ] Custom Linear states (Rework, Human Review, Merging) added?
+- [ ] Runtime state isolated? Unique `--port`, `--logs-root`, and `workspace.root` for this repo?
+- [ ] No duplicate Symphony process already using this repo's `WORKFLOW.md` or port?
 
 To verify the Cursor agent specifically, add the `use-cursor` label to a test ticket. Extra checklist:
 

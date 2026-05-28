@@ -14,6 +14,11 @@ defmodule SymphonyElixir.Config do
 
   Identifier: {{ issue.identifier }}
   Title: {{ issue.title }}
+  {% if issue.base_branch %}
+  Base branch: {{ issue.base_branch }}
+  {% else %}
+  Base branch: main
+  {% endif %}
 
   Body:
   {% if issue.description %}

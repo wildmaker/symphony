@@ -312,7 +312,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       "id" => "issue-1",
       "identifier" => "MT-1",
       "title" => "Blocked todo",
-      "description" => "Needs dependency",
+      "description" => "Needs dependency\n\nBase branch: release/2026.05",
       "priority" => 2,
       "state" => %{"name" => "Todo"},
       "branchName" => "mt-1",
@@ -351,8 +351,17 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert issue.labels == ["backend"]
     assert issue.priority == 2
     assert issue.state == "Todo"
+    assert issue.base_branch == "release/2026.05"
     assert issue.assignee_id == "user-1"
     assert issue.assigned_to_worker
+  end
+
+  test "linear issue extracts explicit base branch from description" do
+    assert Issue.base_branch_from_description("Base branch: `origin/release/1.2`") == "release/1.2"
+    assert Issue.base_branch_from_description("* base_branch = develop") == "develop"
+    assert Issue.base_branch_from_description("基准分支: release/cn") == "release/cn"
+    assert Issue.base_branch_from_description("Base branch: $(rm -rf /)") == nil
+    assert Issue.base_branch_from_description("No branch here") == nil
   end
 
   test "linear client marks explicitly unassigned issues as not routed to worker" do
@@ -627,6 +636,40 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       assert :ok = Workspace.remove_issue_workspaces("MT-HOOKS")
       assert File.read!(before_remove_marker) == "before_remove\n"
       refute File.exists?(workspace)
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "workspace hooks receive issue base branch environment" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-workspace-hook-env-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      File.mkdir_p!(workspace_root)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: """
+        printf '%s' "$SYMPHONY_BASE_BRANCH" > base_branch.txt
+        printf '%s' "$SYMPHONY_BRANCH_NAME" > branch_name.txt
+        """
+      )
+
+      issue = %Issue{
+        id: "issue-base",
+        identifier: "MT-BASE",
+        branch_name: "mt-base",
+        base_branch: "release/2026.05"
+      }
+
+      assert {:ok, workspace} = Workspace.create_for_issue(issue)
+      assert File.read!(Path.join(workspace, "base_branch.txt")) == "release/2026.05"
+      assert File.read!(Path.join(workspace, "branch_name.txt")) == "mt-base"
     after
       File.rm_rf(test_root)
     end

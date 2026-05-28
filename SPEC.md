@@ -165,6 +165,12 @@ Fields:
   - Current tracker state name.
 - `branch_name` (string or null)
   - Tracker-provided branch metadata if available.
+- `base_branch` (string or null)
+  - Explicit ticket-provided base branch, parsed from the issue body.
+  - Supported syntax is a standalone description line such as
+    `Base branch: release/1.2`.
+  - `基准分支: release/1.2` is also accepted.
+  - If absent, workflow prompts and skills should use `main`.
 - `url` (string or null)
 - `labels` (list of strings)
   - Normalized to lowercase.
@@ -404,6 +410,16 @@ Fields:
   - Applies to all workspace hooks.
   - Invalid values fail configuration validation.
   - Changes SHOULD be re-applied at runtime for future hook executions.
+
+Workspace hooks receive these issue-scoped environment variables:
+
+- `SYMPHONY_ISSUE_ID`
+- `SYMPHONY_ISSUE_IDENTIFIER`
+- `SYMPHONY_BRANCH_NAME`
+- `SYMPHONY_BASE_BRANCH`
+
+`SYMPHONY_BASE_BRANCH` is set only when the ticket explicitly declares a base branch; hook
+scripts should fall back to `main` when it is empty.
 
 #### 5.3.5 `agent` (object)
 

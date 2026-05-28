@@ -109,7 +109,7 @@ just the skill name:
 
 - `commit`: produce clean commits during implementation.
 - `push`: keep remote branch current and publish updates.
-- `pull`: sync with `origin/main` before code edits and before handoff.
+- `pull`: sync with the ticket base branch before code edits and before handoff.
 - `land`: when ticket reaches `Merging`, run the merge loop.
 - `linear`: interact with Linear for state updates, comments, and uploads.
 ```
@@ -148,7 +148,8 @@ workspace:
   root: ~/code/workspaces
 hooks:
   after_create: |
-    git clone --depth 1 git@github.com:your-org/your-repo.git .
+    base_branch="${SYMPHONY_BASE_BRANCH:-main}"
+    git clone --depth 1 --branch "$base_branch" git@github.com:your-org/your-repo.git .
 agent:
   max_concurrent_agents: 5
   max_turns: 20
@@ -260,11 +261,28 @@ syntax. Available variables:
 | `issue.url` | string or nil | Tracker URL |
 | `issue.priority` | integer or nil | Lower = higher priority |
 | `issue.branch_name` | string or nil | Tracker-provided branch |
+| `issue.base_branch` | string or nil | Ticket-provided base branch from `Base branch: <branch>` |
 | `issue.blocked_by` | list of objects | Blocker references |
 | `attempt` | integer or nil | nil on first run, >=1 on retry |
 
 Use `{% if variable %}` guards for optional fields to avoid template errors
 (strict mode rejects undefined variables).
+
+## Per-ticket base branch
+
+Users can explicitly target a non-default base branch by adding a standalone
+line to the Linear ticket description:
+
+```markdown
+Base branch: release/1.2
+```
+
+The Chinese form `基准分支: release/1.2` is also accepted.
+
+Symphony parses that value into `issue.base_branch` and exposes it to hooks and
+agent processes as `SYMPHONY_BASE_BRANCH`. Use it in `hooks.after_create` when
+cloning and in the prompt/skills when syncing and creating PRs. If no base branch
+is specified, workflows should fall back to `main`.
 
 ## Design decisions and tradeoffs
 
@@ -329,8 +347,8 @@ each piece of logic.
 
 **Overloading the prompt with tool-specific commands.** Detailed CLI usage
 (`gh api repos/...`, `git rebase --onto ...`) belongs in skills. The workflow
-should describe intent ("merge latest main into branch"), not implementation
-("run `git fetch origin && git merge origin/main`").
+should describe intent ("merge latest base branch into branch"), not implementation
+("run `git fetch origin && git merge origin/$base_branch`").
 
 **Forgetting `{% if %}` guards for optional template variables.** The template
 engine runs in strict mode. If `issue.description` is nil and you render

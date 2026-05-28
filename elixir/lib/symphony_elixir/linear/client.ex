@@ -456,6 +456,7 @@ defmodule SymphonyElixir.Linear.Client do
       priority: parse_priority(issue["priority"]),
       state: get_in(issue, ["state", "name"]),
       branch_name: issue["branchName"],
+      base_branch: Issue.base_branch_from_description(issue["description"]),
       url: issue["url"],
       assignee_id: assignee_field(assignee, "id"),
       blocked_by: extract_blockers(issue),

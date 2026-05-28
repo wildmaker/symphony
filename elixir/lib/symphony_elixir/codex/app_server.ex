@@ -39,9 +39,10 @@ defmodule SymphonyElixir.Codex.AppServer do
   @spec start_session(Path.t(), keyword()) :: {:ok, session()} | {:error, term()}
   def start_session(workspace, opts \\ []) do
     worker_host = Keyword.get(opts, :worker_host)
+    issue = Keyword.get(opts, :issue)
 
     with {:ok, expanded_workspace} <- validate_workspace_cwd(workspace, worker_host),
-         {:ok, port} <- start_port(expanded_workspace, worker_host) do
+         {:ok, port} <- start_port(expanded_workspace, worker_host, issue) do
       metadata = port_metadata(port, worker_host)
 
       with {:ok, session_policies} <- session_policies(expanded_workspace, worker_host),
@@ -186,13 +187,20 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
-  defp start_port(workspace, nil) do
+  defp start_port(workspace, nil, issue) do
     executable = System.find_executable("bash")
 
     if is_nil(executable) do
       {:error, :bash_not_found}
     else
-      command = local_launch_command(workspace)
+      command =
+        [
+          app_server_env_script(issue),
+          workspace_path_script(workspace),
+          local_launch_command()
+        ]
+        |> Enum.reject(&(&1 == ""))
+        |> Enum.join("\n")
 
       port =
         Port.open(
@@ -211,22 +219,25 @@ defmodule SymphonyElixir.Codex.AppServer do
     end
   end
 
-  defp start_port(workspace, worker_host) when is_binary(worker_host) do
-    remote_command = remote_launch_command(workspace)
+  defp start_port(workspace, worker_host, issue) when is_binary(worker_host) do
+    remote_command = remote_launch_command(workspace, issue)
     SSH.start_port(worker_host, remote_command, line: @port_line_bytes)
   end
 
-  defp remote_launch_command(workspace) when is_binary(workspace) do
+  defp remote_launch_command(workspace, issue) when is_binary(workspace) do
     [
+      "set -e",
       "cd #{shell_escape(workspace)}",
-      local_launch_command(workspace)
+      app_server_env_script(issue),
+      workspace_path_script(workspace),
+      local_launch_command()
     ]
-    |> Enum.join(" && ")
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.join("\n")
   end
 
-  defp local_launch_command(workspace) do
-    scripts_path = Path.join(workspace, "scripts")
-    "PATH=#{shell_escape(scripts_path)}:$PATH exec #{Config.settings!().codex.command}"
+  defp local_launch_command do
+    "exec #{Config.settings!().codex.command}"
   end
 
   defp port_metadata(port, worker_host) when is_port(port) do
@@ -1033,6 +1044,31 @@ defmodule SymphonyElixir.Codex.AppServer do
   end
 
   defp maybe_set_usage(metadata, _payload), do: metadata
+
+  defp app_server_env_script(issue) do
+    issue
+    |> app_server_env()
+    |> Enum.map_join("\n", fn {name, value} -> "export #{name}=#{shell_escape(value)}" end)
+  end
+
+  defp app_server_env(issue) do
+    [
+      {"SYMPHONY_ISSUE_ID", issue_value(issue, :id) || ""},
+      {"SYMPHONY_ISSUE_IDENTIFIER", issue_value(issue, :identifier) || ""},
+      {"SYMPHONY_BRANCH_NAME", issue_value(issue, :branch_name) || ""},
+      {"SYMPHONY_BASE_BRANCH", issue_value(issue, :base_branch) || ""}
+    ]
+  end
+
+  defp issue_value(issue, key) when is_atom(key) and is_map(issue) do
+    Map.get(issue, key) || Map.get(issue, to_string(key))
+  end
+
+  defp issue_value(_issue, _key), do: nil
+
+  defp workspace_path_script(workspace) when is_binary(workspace) do
+    "export PATH=#{shell_escape(Path.join(workspace, "scripts"))}:$PATH"
+  end
 
   defp shell_escape(value) when is_binary(value) do
     "'" <> String.replace(value, "'", "'\"'\"'") <> "'"
