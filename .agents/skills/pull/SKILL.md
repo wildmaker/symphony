@@ -1,7 +1,7 @@
 ---
 name: pull
 description:
-  Pull latest origin/main into the current local branch and resolve merge
+  Pull the ticket base branch into the current local branch and resolve merge
   conflicts (aka update-branch). Use when Codex needs to sync a feature branch
   with origin, perform a merge-based update (not rebase), and guide conflict
   resolution best practices.
@@ -18,14 +18,15 @@ description:
 3. Confirm remotes and branches:
    - Ensure the `origin` remote exists.
    - Ensure the current branch is the one to receive the merge.
+   - Determine the base branch from `SYMPHONY_BASE_BRANCH`, falling back to `main`.
 4. Fetch latest refs:
    - `git fetch origin`
 5. Sync the remote feature branch first:
    - `git pull --ff-only origin $(git branch --show-current)`
    - This pulls branch updates made remotely (for example, a GitHub auto-commit)
-     before merging `origin/main`.
+     before merging the base branch.
 6. Merge in order:
-   - Prefer `git -c merge.conflictstyle=zdiff3 merge origin/main` for clearer
+   - Prefer `git -c merge.conflictstyle=zdiff3 merge "origin/$base_branch"` for clearer
      conflict context.
 7. If conflicts appear, resolve them (see conflict guidance below), then:
    - `git add <files>`
