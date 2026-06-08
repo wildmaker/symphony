@@ -7,6 +7,7 @@ defmodule SymphonyElixir.Workspace do
   alias SymphonyElixir.{Config, PathSafety, SSH}
 
   @remote_workspace_marker "__SYMPHONY_WORKSPACE__"
+  @workspace_ready_marker ".symphony-workspace-ready"
 
   @type worker_host :: String.t() | nil
 
@@ -17,10 +18,12 @@ defmodule SymphonyElixir.Workspace do
 
     try do
       safe_id = safe_identifier(issue_context.issue_identifier)
+      worker_host_for_log = worker_host_for_log(worker_host)
 
       with {:ok, workspace} <- workspace_path_for_issue(safe_id, worker_host),
            :ok <- validate_workspace_path(workspace, worker_host),
-           {:ok, workspace, created?} <- ensure_workspace(workspace, worker_host),
+           {:ok, workspace, created?, incomplete?} <- ensure_workspace(workspace, worker_host),
+           :ok <- maybe_log_incomplete_workspace(workspace, issue_context, worker_host_for_log, incomplete?),
            :ok <- maybe_run_after_create_hook(workspace, issue_context, created?, worker_host) do
         {:ok, workspace}
       end
@@ -33,8 +36,11 @@ defmodule SymphonyElixir.Workspace do
 
   defp ensure_workspace(workspace, nil) do
     cond do
+      File.dir?(workspace) && workspace_ready?(workspace, nil) ->
+        {:ok, workspace, false, false}
+
       File.dir?(workspace) ->
-        {:ok, workspace, false}
+        create_workspace(workspace, true)
 
       File.exists?(workspace) ->
         File.rm_rf!(workspace)
@@ -50,8 +56,17 @@ defmodule SymphonyElixir.Workspace do
       [
         "set -eu",
         remote_shell_assign("workspace", workspace),
+        "ready_marker=#{shell_escape(@workspace_ready_marker)}",
+        "incomplete=0",
         "if [ -d \"$workspace\" ]; then",
-        "  created=0",
+        "  if [ -f \"$workspace/$ready_marker\" ]; then",
+        "    created=0",
+        "  else",
+        "    rm -rf \"$workspace\"",
+        "    mkdir -p \"$workspace\"",
+        "    created=1",
+        "    incomplete=1",
+        "  fi",
         "elif [ -e \"$workspace\" ]; then",
         "  rm -rf \"$workspace\"",
         "  mkdir -p \"$workspace\"",
@@ -61,7 +76,7 @@ defmodule SymphonyElixir.Workspace do
         "  created=1",
         "fi",
         "cd \"$workspace\"",
-        "printf '%s\\t%s\\t%s\\n' '#{@remote_workspace_marker}' \"$created\" \"$(pwd -P)\""
+        "printf '%s\\t%s\\t%s\\t%s\\n' '#{@remote_workspace_marker}' \"$created\" \"$incomplete\" \"$(pwd -P)\""
       ]
       |> Enum.reject(&(&1 == ""))
       |> Enum.join("\n")
@@ -79,9 +94,13 @@ defmodule SymphonyElixir.Workspace do
   end
 
   defp create_workspace(workspace) do
+    create_workspace(workspace, false)
+  end
+
+  defp create_workspace(workspace, incomplete?) do
     File.rm_rf!(workspace)
     File.mkdir_p!(workspace)
-    {:ok, workspace, true}
+    {:ok, workspace, true, incomplete?}
   end
 
   @spec remove(Path.t()) :: {:ok, [String.t()]} | {:error, term(), String.t()}
@@ -169,12 +188,14 @@ defmodule SymphonyElixir.Workspace do
     issue_context = issue_context(issue_or_identifier)
     hooks = Config.settings!().hooks
 
-    case hooks.before_run do
-      nil ->
-        :ok
+    with :ok <- require_workspace_ready(workspace, issue_context, worker_host) do
+      case hooks.before_run do
+        nil ->
+          :ok
 
-      command ->
-        run_hook(command, workspace, issue_context, "before_run", worker_host)
+        command ->
+          run_hook(command, workspace, issue_context, "before_run", worker_host)
+      end
     end
   end
 
@@ -212,16 +233,119 @@ defmodule SymphonyElixir.Workspace do
 
     case created? do
       true ->
-        case hooks.after_create do
-          nil ->
-            :ok
+        result =
+          case hooks.after_create do
+            nil ->
+              :ok
 
-          command ->
-            run_hook(command, workspace, issue_context, "after_create", worker_host)
+            command ->
+              run_hook(command, workspace, issue_context, "after_create", worker_host)
+          end
+
+        case result do
+          :ok ->
+            case mark_workspace_ready(workspace, worker_host) do
+              :ok ->
+                :ok
+
+              {:error, reason} ->
+                cleanup_incomplete_workspace(workspace, issue_context, worker_host)
+                {:error, reason}
+            end
+
+          {:error, reason} ->
+            cleanup_incomplete_workspace(workspace, issue_context, worker_host)
+            {:error, reason}
         end
 
       false ->
         :ok
+    end
+  end
+
+  defp maybe_log_incomplete_workspace(_workspace, _issue_context, _worker_host_for_log, false), do: :ok
+
+  defp maybe_log_incomplete_workspace(workspace, issue_context, worker_host_for_log, true) do
+    Logger.warning("Workspace incomplete; recreating before after_create #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=#{worker_host_for_log}")
+    :ok
+  end
+
+  defp mark_workspace_ready(workspace, nil) do
+    File.write!(Path.join(workspace, @workspace_ready_marker), "ready\n")
+    :ok
+  end
+
+  defp mark_workspace_ready(workspace, worker_host) when is_binary(worker_host) do
+    script =
+      [
+        "set -eu",
+        remote_shell_assign("workspace", workspace),
+        "ready_marker=#{shell_escape(@workspace_ready_marker)}",
+        "cd \"$workspace\"",
+        ": > \"$ready_marker\""
+      ]
+      |> Enum.join("\n")
+
+    case run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
+      {:ok, {_output, 0}} ->
+        :ok
+
+      {:ok, {output, status}} ->
+        {:error, {:workspace_mark_ready_failed, worker_host, status, output}}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp cleanup_incomplete_workspace(workspace, issue_context, nil) do
+    Logger.warning("Cleaning incomplete workspace after after_create failure #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=local")
+    File.rm_rf(workspace)
+    :ok
+  end
+
+  defp cleanup_incomplete_workspace(workspace, issue_context, worker_host) when is_binary(worker_host) do
+    Logger.warning("Cleaning incomplete workspace after after_create failure #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=#{worker_host}")
+
+    script =
+      [
+        "set -eu",
+        remote_shell_assign("workspace", workspace),
+        "rm -rf \"$workspace\""
+      ]
+      |> Enum.join("\n")
+
+    run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms)
+    :ok
+  end
+
+  defp require_workspace_ready(workspace, issue_context, worker_host) do
+    case workspace_ready?(workspace, worker_host) do
+      true ->
+        :ok
+
+      false ->
+        Logger.warning("Workspace not ready; skipping before_run #{issue_log_context(issue_context)} workspace=#{workspace} worker_host=#{worker_host_for_log(worker_host)}")
+        {:error, {:workspace_not_ready, workspace}}
+    end
+  end
+
+  defp workspace_ready?(workspace, nil) do
+    File.regular?(Path.join(workspace, @workspace_ready_marker))
+  end
+
+  defp workspace_ready?(workspace, worker_host) when is_binary(worker_host) do
+    script =
+      [
+        remote_shell_assign("workspace", workspace),
+        "ready_marker=#{shell_escape(@workspace_ready_marker)}",
+        "test -f \"$workspace/$ready_marker\""
+      ]
+      |> Enum.join("\n")
+
+    case run_remote_command(worker_host, script, Config.settings!().hooks.timeout_ms) do
+      {:ok, {_output, 0}} -> true
+      _ -> false
     end
   end
 
@@ -445,9 +569,13 @@ defmodule SymphonyElixir.Workspace do
 
     payload =
       Enum.find_value(lines, fn line ->
-        case String.split(line, "\t", parts: 3) do
+        case String.split(line, "\t", parts: 4) do
+          [@remote_workspace_marker, created, incomplete, path]
+          when created in ["0", "1"] and incomplete in ["0", "1"] and path != "" ->
+            {created == "1", incomplete == "1", path}
+
           [@remote_workspace_marker, created, path] when created in ["0", "1"] and path != "" ->
-            {created == "1", path}
+            {created == "1", false, path}
 
           _ ->
             nil
@@ -455,8 +583,9 @@ defmodule SymphonyElixir.Workspace do
       end)
 
     case payload do
-      {created?, workspace} when is_boolean(created?) and is_binary(workspace) ->
-        {:ok, workspace, created?}
+      {created?, incomplete?, workspace}
+      when is_boolean(created?) and is_boolean(incomplete?) and is_binary(workspace) ->
+        {:ok, workspace, created?, incomplete?}
 
       _ ->
         {:error, {:workspace_prepare_failed, :invalid_output, output}}

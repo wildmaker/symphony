@@ -190,8 +190,9 @@ applied to that agent's command.
 
 ### Hooks
 
-- `after_create` — runs once when a workspace directory is first created.
-  Typically clones the repo and installs dependencies.
+- `after_create` — runs when a workspace is first created, and runs again if a
+  previous bootstrap failed before Symphony marked the workspace ready. Typically
+  clones the repo and installs dependencies.
 - `before_run` — runs before each agent attempt. Use for env checks or
   pre-flight setup.
 - `after_run` — runs after each agent attempt. Use for cleanup or reporting.

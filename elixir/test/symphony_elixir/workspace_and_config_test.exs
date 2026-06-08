@@ -5,6 +5,8 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
   alias SymphonyElixir.Config.Schema.{Codex, StringOrMap}
   alias SymphonyElixir.Linear.Client
 
+  @workspace_ready_marker ".symphony-workspace-ready"
+
   test "workspace bootstrap can be implemented in after_create hook" do
     test_root =
       Path.join(
@@ -70,6 +72,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
       )
 
       assert {:ok, first_workspace} = Workspace.create_for_issue("MT-REUSE")
+      assert File.exists?(Path.join(first_workspace, @workspace_ready_marker))
 
       File.write!(Path.join(first_workspace, "README.md"), "changed\n")
       File.write!(Path.join(first_workspace, "local-progress.txt"), "in progress\n")
@@ -206,8 +209,88 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
       assert {:error, {:workspace_hook_failed, "after_create", 17, _output}} =
                Workspace.create_for_issue("MT-FAIL")
+
+      workspace = Path.join(workspace_root, "MT-FAIL")
+      refute File.exists?(Path.join(workspace, @workspace_ready_marker))
     after
       File.rm_rf(workspace_root)
+    end
+  end
+
+  test "workspace reruns after_create after a failed first bootstrap" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-workspace-hook-retry-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      attempts_file = Path.join(test_root, "after_create.attempts")
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: """
+        if [ ! -f "#{attempts_file}" ]; then
+          echo first > "#{attempts_file}"
+          echo partial > partial.txt
+          exit 17
+        fi
+
+        echo second >> "#{attempts_file}"
+        echo bootstrapped > boot.txt
+        """
+      )
+
+      assert {:error, {:workspace_hook_failed, "after_create", 17, _output}} =
+               Workspace.create_for_issue("MT-RETRY")
+
+      workspace = Path.join(workspace_root, "MT-RETRY")
+      refute File.exists?(workspace)
+
+      assert {:ok, workspace} = Workspace.create_for_issue("MT-RETRY")
+      assert File.read!(attempts_file) == "first\nsecond\n"
+      assert File.read!(Path.join(workspace, "boot.txt")) == "bootstrapped\n"
+      assert File.exists?(Path.join(workspace, @workspace_ready_marker))
+      refute File.exists?(Path.join(workspace, "partial.txt"))
+    after
+      File.rm_rf(test_root)
+    end
+  end
+
+  test "workspace recreates an existing directory without ready marker before after_create" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-workspace-incomplete-#{System.unique_integer([:positive])}"
+      )
+
+    try do
+      workspace_root = Path.join(test_root, "workspaces")
+      workspace = Path.join(workspace_root, "MT-INCOMPLETE")
+      attempts_file = Path.join(test_root, "after_create.attempts")
+
+      File.mkdir_p!(workspace)
+      File.write!(Path.join(workspace, "partial.txt"), "old partial state\n")
+      assert {:ok, canonical_workspace} = SymphonyElixir.PathSafety.canonicalize(workspace)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        hook_after_create: "echo call >> \"#{attempts_file}\"\necho ready > boot.txt"
+      )
+
+      log =
+        capture_log(fn ->
+          assert {:ok, ^canonical_workspace} = Workspace.create_for_issue("MT-INCOMPLETE")
+        end)
+
+      assert log =~ "Workspace incomplete; recreating before after_create"
+      assert File.read!(attempts_file) == "call\n"
+      assert File.read!(Path.join(workspace, "boot.txt")) == "ready\n"
+      assert File.exists?(Path.join(workspace, @workspace_ready_marker))
+      refute File.exists?(Path.join(workspace, "partial.txt"))
+    after
+      File.rm_rf(test_root)
     end
   end
 
@@ -227,12 +310,15 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
       assert {:error, {:workspace_hook_timeout, "after_create", 10}} =
                Workspace.create_for_issue("MT-TIMEOUT")
+
+      workspace = Path.join(workspace_root, "MT-TIMEOUT")
+      refute File.exists?(Path.join(workspace, @workspace_ready_marker))
     after
       File.rm_rf(workspace_root)
     end
   end
 
-  test "workspace creates an empty directory when no bootstrap hook is configured" do
+  test "workspace creates and reuses a ready directory when no bootstrap hook is configured" do
     workspace_root =
       Path.join(
         System.tmp_dir!(),
@@ -247,7 +333,12 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
       assert {:ok, ^canonical_workspace} = Workspace.create_for_issue("MT-608")
       assert File.dir?(workspace)
-      assert {:ok, []} = File.ls(workspace)
+      assert File.exists?(Path.join(workspace, @workspace_ready_marker))
+
+      File.write!(Path.join(workspace, "local-progress.txt"), "keep\n")
+
+      assert {:ok, ^canonical_workspace} = Workspace.create_for_issue("MT-608")
+      assert File.read!(Path.join(workspace, "local-progress.txt")) == "keep\n"
     after
       File.rm_rf(workspace_root)
     end
@@ -629,6 +720,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
       assert {:ok, workspace} = Workspace.create_for_issue("MT-HOOKS")
       assert File.read!(Path.join(workspace, "after_create.log")) == "after_create\n"
+      assert File.exists?(Path.join(workspace, @workspace_ready_marker))
 
       assert {:ok, _workspace} = Workspace.create_for_issue("MT-HOOKS")
       assert length(String.split(String.trim(File.read!(after_create_counter)), "\n")) == 1
@@ -1274,6 +1366,83 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
 
     write_workflow_file!(Workflow.workflow_file_path(), prompt: workflow_prompt)
     assert Config.workflow_prompt() == workflow_prompt
+  end
+
+  test "remote workspace reruns after_create when ssh bootstrap was incomplete" do
+    test_root =
+      Path.join(
+        System.tmp_dir!(),
+        "symphony-elixir-remote-workspace-ready-#{System.unique_integer([:positive])}"
+      )
+
+    previous_path = System.get_env("PATH")
+    previous_trace = System.get_env("SYMP_TEST_SSH_TRACE")
+
+    on_exit(fn ->
+      restore_env("PATH", previous_path)
+      restore_env("SYMP_TEST_SSH_TRACE", previous_trace)
+    end)
+
+    try do
+      trace_file = Path.join(test_root, "ssh.trace")
+      fake_ssh = Path.join(test_root, "ssh")
+      workspace_root = Path.join(test_root, "remote-workspaces")
+      workspace_path = Path.join(workspace_root, "MT-SSH-READY")
+      attempts_file = Path.join(test_root, "remote-after-create.attempts")
+
+      File.mkdir_p!(test_root)
+      File.mkdir_p!(workspace_root)
+      assert {:ok, canonical_workspace_path} = SymphonyElixir.PathSafety.canonicalize(workspace_path)
+      System.put_env("SYMP_TEST_SSH_TRACE", trace_file)
+      System.put_env("PATH", test_root <> ":" <> (previous_path || ""))
+
+      File.write!(fake_ssh, """
+      #!/bin/sh
+      trace_file="${SYMP_TEST_SSH_TRACE:-/tmp/symphony-fake-ssh.trace}"
+      printf 'ARGV:%s\\n' "$*" >> "$trace_file"
+
+      remote_command=""
+      for arg in "$@"; do
+        remote_command="$arg"
+      done
+
+      HOME="#{test_root}" eval "$remote_command"
+      """)
+
+      File.chmod!(fake_ssh, 0o755)
+
+      write_workflow_file!(Workflow.workflow_file_path(),
+        workspace_root: workspace_root,
+        worker_ssh_hosts: ["worker-01"],
+        hook_after_create: """
+        if [ ! -f "#{attempts_file}" ]; then
+          echo first > "#{attempts_file}"
+          echo partial > partial.txt
+          exit 23
+        fi
+
+        echo second >> "#{attempts_file}"
+        echo remote-ready > boot.txt
+        """,
+        hook_before_run: "test -f boot.txt"
+      )
+
+      assert {:error, {:workspace_hook_failed, "after_create", 23, _output}} =
+               Workspace.create_for_issue("MT-SSH-READY", "worker-01")
+
+      refute File.exists?(workspace_path)
+
+      assert {:ok, ^canonical_workspace_path} = Workspace.create_for_issue("MT-SSH-READY", "worker-01")
+      assert :ok = Workspace.run_before_run_hook(canonical_workspace_path, "MT-SSH-READY", "worker-01")
+      assert {:ok, ^canonical_workspace_path} = Workspace.create_for_issue("MT-SSH-READY", "worker-01")
+
+      assert File.read!(attempts_file) == "first\nsecond\n"
+      assert File.read!(Path.join(canonical_workspace_path, "boot.txt")) == "remote-ready\n"
+      assert File.exists?(Path.join(canonical_workspace_path, @workspace_ready_marker))
+      refute File.exists?(Path.join(canonical_workspace_path, "partial.txt"))
+    after
+      File.rm_rf(test_root)
+    end
   end
 
   test "remote workspace lifecycle uses ssh host aliases from worker config" do

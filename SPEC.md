@@ -213,6 +213,7 @@ Fields (logical):
 - `path` (absolute workspace path)
 - `workspace_key` (sanitized issue identifier)
 - `created_now` (boolean, used to gate `after_create` hook)
+- `ready` (boolean, true only after Symphony has completed workspace bootstrap)
 
 #### 4.1.5 Run Attempt
 
@@ -392,8 +393,9 @@ Fields:
 Fields:
 
 - `after_create` (multiline shell script string, OPTIONAL)
-  - Runs only when a workspace directory is newly created.
-  - Failure aborts workspace creation.
+  - Runs when a workspace directory is newly created or an existing workspace is missing the
+    Symphony readiness marker.
+  - Failure aborts workspace creation and MUST NOT mark the workspace ready.
 - `before_run` (multiline shell script string, OPTIONAL)
   - Runs before each agent attempt after workspace preparation and before launching the coding
     agent.
@@ -837,7 +839,7 @@ Per-issue workspace path:
 
 Workspace persistence:
 
-- Workspaces are reused across runs for the same issue.
+- Ready workspaces are reused across runs for the same issue.
 - Successful runs do not auto-delete workspaces.
 
 ### 9.2 Workspace Creation and Reuse
@@ -848,16 +850,20 @@ Algorithm summary:
 
 1. Sanitize identifier to `workspace_key`.
 2. Compute workspace path under workspace root.
-3. Ensure the workspace path exists as a directory.
-4. Mark `created_now=true` only if the directory was created during this call; otherwise
-   `created_now=false`.
+3. If the workspace path exists as a ready directory, reuse it with `created_now=false`.
+4. If the workspace path is missing, is a non-directory, or is a directory without the Symphony
+   readiness marker, recreate it and set `created_now=true`.
 5. If `created_now=true`, run `after_create` hook if configured.
+6. Mark the workspace ready only after `after_create` succeeds, or immediately if no
+   `after_create` hook is configured.
 
 Notes:
 
 - This section does not assume any specific repository/VCS workflow.
 - Workspace preparation beyond directory creation (for example dependency bootstrap, checkout/sync,
   code generation) is implementation-defined and is typically handled via hooks.
+- Implementations SHOULD use an internal marker such as `.symphony-workspace-ready` so process
+  crashes or remote-worker interruptions do not make half-initialized directories look reusable.
 
 ### 9.3 OPTIONAL Workspace Population (Implementation-Defined)
 
@@ -869,8 +875,8 @@ hooks (for example `after_create` and/or `before_run`).
 Failure handling:
 
 - Workspace population/synchronization failures return an error for the current attempt.
-- If failure happens while creating a brand-new workspace, implementations MAY remove the partially
-  prepared directory.
+- If failure happens while preparing a not-yet-ready workspace, implementations MUST leave it
+  unready and SHOULD remove the partially prepared directory.
 - Reused workspaces SHOULD NOT be destructively reset on population failure unless that policy is
   explicitly chosen and documented.
 
@@ -2042,12 +2048,15 @@ Unless otherwise noted, Sections 17.1 through 17.7 are `Core Conformance`. Bulle
 
 - Deterministic workspace path per issue identifier
 - Missing workspace directory is created
-- Existing workspace directory is reused
+- Existing ready workspace directory is reused
+- Existing workspace directory without the Symphony readiness marker is recreated before
+  `after_create`
 - Existing non-directory path at workspace location is handled safely (replace or fail per
   implementation policy)
 - OPTIONAL workspace population/synchronization errors are surfaced
-- `after_create` hook runs only on new workspace creation
-- `before_run` hook runs before each attempt and failure/timeouts abort the current attempt
+- `after_create` hook runs only on new or not-yet-ready workspace creation
+- `before_run` hook runs only after workspace readiness and failure/timeouts abort the current
+  attempt
 - `after_run` hook runs after each attempt and failure/timeouts are logged and ignored
 - `before_remove` hook runs on cleanup and failures/timeouts are ignored
 - Workspace path sanitization and root containment invariants are enforced before agent launch
