@@ -194,17 +194,22 @@ adding label `model-o3-pro` to a Linear ticket causes Symphony to launch Codex w
 - If a later reload fails, Symphony keeps running with the last known good workflow and logs the
   reload error until the file is fixed.
 - `server.port` or CLI `--port` enables the optional Phoenix LiveView dashboard and JSON API at
-  `/`, `/api/v1/state`, `/api/v1/<issue_identifier>`, and `/api/v1/refresh`.
+  `/`, `/sessions/<issue_identifier>`, `/api/v1/state`, `/api/v1/<issue_identifier>`,
+  `/api/v1/<issue_identifier>/events`, and `/api/v1/refresh`.
 
 ## Web dashboard
 
 The observability UI now runs on a minimal Phoenix stack:
 
 - LiveView for the dashboard at `/`
+- LiveView for per-issue Codex output streams at `/sessions/<issue_identifier>`
 - JSON API for operational debugging under `/api/v1/*`
 - Bandit as the HTTP server
 - Phoenix dependency static assets for the LiveView client bootstrap
 - Tracker issue identifiers link to the tracker-provided URL when it uses `http` or `https`
+- Running, retrying, and blocked issue details include a bounded, redacted Codex event timeline for
+  recent agent messages, tool calls, command output updates, token usage, and turn completion/failure
+  events.
 
 ## Project Layout
 

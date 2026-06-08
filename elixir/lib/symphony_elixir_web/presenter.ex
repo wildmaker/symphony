@@ -3,6 +3,7 @@ defmodule SymphonyElixirWeb.Presenter do
   Shared projections for the observability API and dashboard.
   """
 
+  alias SymphonyElixir.Codex.EventLog
   alias SymphonyElixir.{Config, Orchestrator, StatusDashboard}
 
   @spec state_payload(GenServer.name(), timeout()) :: map()
@@ -52,6 +53,26 @@ defmodule SymphonyElixirWeb.Presenter do
     end
   end
 
+  @spec issue_events_payload(String.t(), GenServer.name(), timeout()) ::
+          {:ok, map()} | {:error, :issue_not_found}
+  def issue_events_payload(issue_identifier, orchestrator, snapshot_timeout_ms)
+      when is_binary(issue_identifier) do
+    case issue_payload(issue_identifier, orchestrator, snapshot_timeout_ms) do
+      {:ok, payload} ->
+        {:ok,
+         %{
+           issue_identifier: payload.issue_identifier,
+           issue_id: payload.issue_id,
+           status: payload.status,
+           generated_at: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
+           events: payload.logs.codex_session_logs
+         }}
+
+      {:error, :issue_not_found} ->
+        {:error, :issue_not_found}
+    end
+  end
+
   @spec refresh_payload(GenServer.name()) :: {:ok, map()} | {:error, :unavailable}
   def refresh_payload(orchestrator) do
     case Orchestrator.request_refresh(orchestrator) do
@@ -64,6 +85,8 @@ defmodule SymphonyElixirWeb.Presenter do
   end
 
   defp issue_payload_body(issue_identifier, running, retry, blocked) do
+    entry = primary_entry(running, retry, blocked)
+
     %{
       issue_identifier: issue_identifier,
       issue_id: issue_id_from_entries(running, retry, blocked),
@@ -76,17 +99,26 @@ defmodule SymphonyElixirWeb.Presenter do
         restart_count: restart_count(retry),
         current_retry_attempt: retry_attempt(retry)
       },
-      running: running && running_issue_payload(running),
-      retry: retry && retry_issue_payload(retry),
-      blocked: blocked && blocked_issue_payload(blocked),
+      running: payload_or_nil(running, &running_issue_payload/1),
+      retry: payload_or_nil(retry, &retry_issue_payload/1),
+      blocked: payload_or_nil(blocked, &blocked_issue_payload/1),
       logs: %{
-        codex_session_logs: []
+        codex_session_logs: codex_session_logs_payload(entry)
       },
-      recent_events: recent_events_payload(running || blocked),
-      last_error: (blocked && blocked.error) || (retry && retry.error),
+      recent_events: recent_events_payload(entry),
+      last_error: last_error(retry, blocked),
       tracked: %{}
     }
   end
+
+  defp primary_entry(running, retry, blocked), do: running || retry || blocked
+
+  defp payload_or_nil(nil, _fun), do: nil
+  defp payload_or_nil(entry, fun), do: fun.(entry)
+
+  defp last_error(_retry, %{error: error}), do: error
+  defp last_error(%{error: error}, _blocked), do: error
+  defp last_error(_retry, _blocked), do: nil
 
   defp issue_id_from_entries(running, retry, blocked),
     do: (running && running.issue_id) || (retry && retry.issue_id) || (blocked && blocked.issue_id)
@@ -176,7 +208,11 @@ defmodule SymphonyElixirWeb.Presenter do
       due_at: due_at_iso8601(retry.due_in_ms),
       error: retry.error,
       worker_host: Map.get(retry, :worker_host),
-      workspace_path: Map.get(retry, :workspace_path)
+      workspace_path: Map.get(retry, :workspace_path),
+      session_id: Map.get(retry, :session_id),
+      last_event: Map.get(retry, :last_codex_event),
+      last_message: summarize_message(Map.get(retry, :last_codex_message)),
+      last_event_at: iso8601(Map.get(retry, :last_codex_timestamp))
     }
   end
 
@@ -210,18 +246,61 @@ defmodule SymphonyElixirWeb.Presenter do
   defp recent_events_payload(nil), do: []
 
   defp recent_events_payload(entry) do
+    events = codex_session_logs_payload(entry)
+
+    if events != [] do
+      Enum.take(events, -10)
+    else
+      last_event_payload(entry)
+    end
+  end
+
+  defp codex_session_logs_payload(nil), do: []
+
+  defp codex_session_logs_payload(entry) do
+    entry
+    |> Map.get(:codex_events, [])
+    |> Enum.flat_map(fn event ->
+      case codex_event_payload(event) do
+        nil -> []
+        payload -> [payload]
+      end
+    end)
+  end
+
+  defp codex_event_payload(event) when is_map(event) do
+    %{
+      at: iso8601(Map.get(event, :at) || Map.get(event, "at")),
+      event: stringify_event(Map.get(event, :event) || Map.get(event, "event")),
+      message: redact_text(Map.get(event, :message) || Map.get(event, "message")),
+      raw: EventLog.redact(Map.get(event, :raw) || Map.get(event, "raw") || %{})
+    }
+  end
+
+  defp codex_event_payload(_event), do: nil
+
+  defp last_event_payload(entry) do
     [
       %{
-        at: iso8601(entry.last_codex_timestamp),
-        event: entry.last_codex_event,
-        message: summarize_message(entry.last_codex_message)
+        at: iso8601(Map.get(entry, :last_codex_timestamp)),
+        event: stringify_event(Map.get(entry, :last_codex_event)),
+        message: summarize_message(Map.get(entry, :last_codex_message)),
+        raw: %{}
       }
     ]
     |> Enum.reject(&is_nil(&1.at))
   end
 
+  defp stringify_event(nil), do: nil
+  defp stringify_event(event) when is_atom(event), do: Atom.to_string(event)
+  defp stringify_event(event), do: to_string(event)
+
   defp summarize_message(nil), do: nil
-  defp summarize_message(message), do: StatusDashboard.humanize_codex_message(message)
+  defp summarize_message(message), do: message |> StatusDashboard.humanize_codex_message() |> redact_text()
+
+  defp redact_text(nil), do: nil
+  defp redact_text(message) when is_binary(message), do: EventLog.redact(message)
+  defp redact_text(message), do: message |> to_string() |> EventLog.redact()
 
   defp due_at_iso8601(due_in_ms) when is_integer(due_in_ms) do
     DateTime.utc_now()
@@ -238,5 +317,6 @@ defmodule SymphonyElixirWeb.Presenter do
     |> DateTime.to_iso8601()
   end
 
+  defp iso8601(datetime) when is_binary(datetime), do: datetime
   defp iso8601(_datetime), do: nil
 end

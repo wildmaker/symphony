@@ -24,6 +24,17 @@ defmodule SymphonyElixirWeb.ObservabilityApiController do
     end
   end
 
+  @spec issue_events(Conn.t(), map()) :: Conn.t()
+  def issue_events(conn, %{"issue_identifier" => issue_identifier}) do
+    case Presenter.issue_events_payload(issue_identifier, orchestrator(), snapshot_timeout_ms()) do
+      {:ok, payload} ->
+        json(conn, payload)
+
+      {:error, :issue_not_found} ->
+        error_response(conn, 404, "issue_not_found", "Issue not found")
+    end
+  end
+
   @spec refresh(Conn.t(), map()) :: Conn.t()
   def refresh(conn, _params) do
     case Presenter.refresh_payload(orchestrator()) do

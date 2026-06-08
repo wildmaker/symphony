@@ -112,8 +112,7 @@ defmodule SymphonyElixir.CoreTest do
 
     assert Map.get(hooks, "after_create") =~ "cd elixir && mise trust"
     assert Map.get(hooks, "after_create") =~ "mise exec -- mix deps.get"
-    assert Map.get(hooks, "before_remove") =~ "gh pr list --head"
-    assert Map.get(hooks, "before_remove") =~ "gh pr close"
+    assert Map.get(hooks, "before_remove") =~ "mix workspace.before_remove"
 
     assert String.trim(prompt) != ""
     assert is_binary(Config.workflow_prompt())

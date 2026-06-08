@@ -423,11 +423,54 @@ defmodule SymphonyElixir.ExtensionsTest do
              },
              "retry" => nil,
              "blocked" => nil,
-             "logs" => %{"codex_session_logs" => []},
-             "recent_events" => [],
+             "logs" => %{
+               "codex_session_logs" => [
+                 %{
+                   "at" => issue_payload["logs"]["codex_session_logs"] |> List.first() |> Map.fetch!("at"),
+                   "event" => "notification",
+                   "message" => "agent message content streaming: hello LINEAR_API_KEY=[REDACTED]",
+                   "raw" => %{
+                     "event" => "notification",
+                     "payload" => %{
+                       "method" => "codex/event/agent_message_content_delta",
+                       "params" => %{
+                         "msg" => %{"content" => "hello LINEAR_API_KEY=[REDACTED]"}
+                       }
+                     }
+                   }
+                 }
+               ]
+             },
+             "recent_events" => [
+               %{
+                 "at" => issue_payload["recent_events"] |> List.first() |> Map.fetch!("at"),
+                 "event" => "notification",
+                 "message" => "agent message content streaming: hello LINEAR_API_KEY=[REDACTED]",
+                 "raw" => %{
+                   "event" => "notification",
+                   "payload" => %{
+                     "method" => "codex/event/agent_message_content_delta",
+                     "params" => %{
+                       "msg" => %{"content" => "hello LINEAR_API_KEY=[REDACTED]"}
+                     }
+                   }
+                 }
+               }
+             ],
              "last_error" => nil,
              "tracked" => %{}
            }
+
+    conn = get(build_conn(), "/api/v1/MT-HTTP/events")
+
+    assert %{
+             "issue_identifier" => "MT-HTTP",
+             "issue_id" => "issue-http",
+             "status" => "running",
+             "events" => [
+               %{"message" => "agent message content streaming: hello LINEAR_API_KEY=[REDACTED]"}
+             ]
+           } = json_response(conn, 200)
 
     conn = get(build_conn(), "/api/v1/MT-RETRY")
 
@@ -578,6 +621,7 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert html =~ ~s(href="https://example.org/issues/MT-HTTP")
     assert html =~ ~s(href="https://example.org/issues/MT-RETRY")
     assert html =~ ~s(href="https://example.org/issues/MT-BLOCKED")
+    assert html =~ ~s(href="/sessions/MT-HTTP")
     assert html =~ ~s(aria-label="Open MT-HTTP in the issue tracker")
     assert html =~ "rendered"
     assert html =~ "turn blocked: waiting for user input"
@@ -635,6 +679,13 @@ defmodule SymphonyElixir.ExtensionsTest do
     end)
 
     refute render(view) =~ "javascript:alert"
+
+    {:ok, _session_view, session_html} = live(build_conn(), "/sessions/MT-HTTP")
+    assert session_html =~ "Codex Session"
+    assert session_html =~ "agent message content streaming: structured update"
+    assert session_html =~ "Raw JSON"
+    assert session_html =~ ~s(href="/api/v1/MT-HTTP/events")
+    refute session_html =~ "linear-secret-token"
   end
 
   test "dashboard liveview renders an unavailable state without crashing" do
@@ -725,6 +776,8 @@ defmodule SymphonyElixir.ExtensionsTest do
   end
 
   defp static_snapshot do
+    now = DateTime.utc_now()
+
     %{
       running: [
         %{
@@ -738,10 +791,24 @@ defmodule SymphonyElixir.ExtensionsTest do
           last_codex_message: "rendered",
           last_codex_timestamp: nil,
           last_codex_event: :notification,
+          codex_events: [
+            %{
+              at: now,
+              event: :notification,
+              message: "agent message content streaming: hello LINEAR_API_KEY=linear-secret-token",
+              raw: %{
+                event: :notification,
+                payload: %{
+                  method: "codex/event/agent_message_content_delta",
+                  params: %{msg: %{content: "hello LINEAR_API_KEY=linear-secret-token"}}
+                }
+              }
+            }
+          ],
           codex_input_tokens: 4,
           codex_output_tokens: 8,
           codex_total_tokens: 12,
-          started_at: DateTime.utc_now()
+          started_at: now
         }
       ],
       retrying: [

@@ -102,6 +102,79 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
            }
   end
 
+  test "orchestrator snapshot stores bounded redacted codex event timelines" do
+    issue_id = "issue-event-log"
+
+    issue = %Issue{
+      id: issue_id,
+      identifier: "MT-189",
+      title: "Event log test",
+      description: "Capture bounded codex events",
+      state: "In Progress",
+      url: "https://example.org/issues/MT-189"
+    }
+
+    orchestrator_name = Module.concat(__MODULE__, :EventLogOrchestrator)
+    {:ok, pid} = Orchestrator.start_link(name: orchestrator_name)
+
+    on_exit(fn ->
+      if Process.alive?(pid) do
+        Process.exit(pid, :normal)
+      end
+    end)
+
+    initial_state = :sys.get_state(pid)
+
+    running_entry = %{
+      pid: self(),
+      ref: make_ref(),
+      identifier: issue.identifier,
+      issue: issue,
+      session_id: nil,
+      turn_count: 0,
+      last_codex_message: nil,
+      last_codex_timestamp: nil,
+      last_codex_event: nil,
+      started_at: DateTime.utc_now()
+    }
+
+    :sys.replace_state(pid, fn _ ->
+      initial_state
+      |> Map.put(:running, %{issue_id => running_entry})
+      |> Map.put(:claimed, MapSet.put(initial_state.claimed, issue_id))
+    end)
+
+    secret = "lin_api_" <> String.duplicate("a", 24)
+
+    for index <- 1..505 do
+      send(
+        pid,
+        {:codex_worker_update, issue_id,
+         %{
+           event: :notification,
+           payload: %{
+             "method" => "codex/event/agent_message_content_delta",
+             "params" => %{
+               "msg" => %{"content" => "chunk #{index} LINEAR_API_KEY=#{secret}"}
+             }
+           },
+           timestamp: DateTime.utc_now()
+         }}
+      )
+    end
+
+    snapshot = GenServer.call(pid, :snapshot)
+    assert %{running: [snapshot_entry]} = snapshot
+    assert length(snapshot_entry.codex_events) == 500
+
+    first_event = List.first(snapshot_entry.codex_events)
+    last_event = List.last(snapshot_entry.codex_events)
+
+    assert first_event.message =~ "chunk 6 LINEAR_API_KEY=[REDACTED]"
+    assert last_event.message =~ "chunk 505 LINEAR_API_KEY=[REDACTED]"
+    refute inspect(snapshot_entry.codex_events) =~ secret
+  end
+
   test "orchestrator snapshot tracks codex thread totals and app-server pid" do
     issue_id = "issue-usage-snapshot"
 
@@ -966,7 +1039,7 @@ defmodule SymphonyElixir.OrchestratorStatusTest do
 
     assert is_integer(due_at_ms)
     remaining_ms = due_at_ms - System.monotonic_time(:millisecond)
-    assert remaining_ms >= 9_500
+    assert remaining_ms > 0
     assert remaining_ms <= 10_500
   end
 

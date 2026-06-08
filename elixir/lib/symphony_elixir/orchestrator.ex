@@ -8,6 +8,7 @@ defmodule SymphonyElixir.Orchestrator do
   import Bitwise, only: [<<<: 2]
 
   alias SymphonyElixir.{AgentRunner, Config, StatusDashboard, Tracker, Workspace}
+  alias SymphonyElixir.Codex.EventLog
   alias SymphonyElixir.Linear.Issue
 
   @continuation_retry_delay_ms 1_000
@@ -210,7 +211,12 @@ defmodule SymphonyElixir.Orchestrator do
         issue_url: running_entry.issue.url,
         delay_type: :continuation,
         worker_host: Map.get(running_entry, :worker_host),
-        workspace_path: Map.get(running_entry, :workspace_path)
+        workspace_path: Map.get(running_entry, :workspace_path),
+        session_id: running_entry_session_id(running_entry),
+        last_codex_message: Map.get(running_entry, :last_codex_message),
+        last_codex_event: Map.get(running_entry, :last_codex_event),
+        last_codex_timestamp: Map.get(running_entry, :last_codex_timestamp),
+        codex_events: Map.get(running_entry, :codex_events, [])
       })
     end
   end
@@ -241,7 +247,12 @@ defmodule SymphonyElixir.Orchestrator do
       issue_url: running_entry.issue.url,
       error: "agent exited: #{inspect(reason)}",
       worker_host: Map.get(running_entry, :worker_host),
-      workspace_path: Map.get(running_entry, :workspace_path)
+      workspace_path: Map.get(running_entry, :workspace_path),
+      session_id: running_entry_session_id(running_entry),
+      last_codex_message: Map.get(running_entry, :last_codex_message),
+      last_codex_event: Map.get(running_entry, :last_codex_event),
+      last_codex_timestamp: Map.get(running_entry, :last_codex_timestamp),
+      codex_events: Map.get(running_entry, :codex_events, [])
     })
   end
 
@@ -608,7 +619,14 @@ defmodule SymphonyElixir.Orchestrator do
         |> schedule_issue_retry(issue_id, next_attempt, %{
           identifier: identifier,
           issue_url: running_entry.issue.url,
-          error: "stalled for #{elapsed_ms}ms without codex activity"
+          error: "stalled for #{elapsed_ms}ms without codex activity",
+          worker_host: Map.get(running_entry, :worker_host),
+          workspace_path: Map.get(running_entry, :workspace_path),
+          session_id: running_entry_session_id(running_entry),
+          last_codex_message: Map.get(running_entry, :last_codex_message),
+          last_codex_event: Map.get(running_entry, :last_codex_event),
+          last_codex_timestamp: Map.get(running_entry, :last_codex_timestamp),
+          codex_events: Map.get(running_entry, :codex_events, [])
         })
       end
     else
@@ -739,7 +757,8 @@ defmodule SymphonyElixir.Orchestrator do
       blocked_at: DateTime.utc_now(),
       last_codex_message: Map.get(running_entry, :last_codex_message),
       last_codex_event: Map.get(running_entry, :last_codex_event),
-      last_codex_timestamp: Map.get(running_entry, :last_codex_timestamp)
+      last_codex_timestamp: Map.get(running_entry, :last_codex_timestamp),
+      codex_events: Map.get(running_entry, :codex_events, [])
     }
 
     %{
@@ -947,6 +966,7 @@ defmodule SymphonyElixir.Orchestrator do
             last_codex_message: nil,
             last_codex_timestamp: nil,
             last_codex_event: nil,
+            codex_events: [],
             codex_app_server_pid: nil,
             codex_input_tokens: 0,
             codex_output_tokens: 0,
@@ -1020,6 +1040,11 @@ defmodule SymphonyElixir.Orchestrator do
     error = pick_retry_error(previous_retry, metadata)
     worker_host = pick_retry_worker_host(previous_retry, metadata)
     workspace_path = pick_retry_workspace_path(previous_retry, metadata)
+    session_id = pick_retry_value(previous_retry, metadata, :session_id)
+    last_codex_timestamp = pick_retry_value(previous_retry, metadata, :last_codex_timestamp)
+    last_codex_message = pick_retry_value(previous_retry, metadata, :last_codex_message)
+    last_codex_event = pick_retry_value(previous_retry, metadata, :last_codex_event)
+    codex_events = pick_retry_codex_events(previous_retry, metadata)
 
     if is_reference(old_timer) do
       Process.cancel_timer(old_timer)
@@ -1043,7 +1068,12 @@ defmodule SymphonyElixir.Orchestrator do
             issue_url: issue_url,
             error: error,
             worker_host: worker_host,
-            workspace_path: workspace_path
+            workspace_path: workspace_path,
+            session_id: session_id,
+            last_codex_timestamp: last_codex_timestamp,
+            last_codex_message: last_codex_message,
+            last_codex_event: last_codex_event,
+            codex_events: codex_events
           })
     }
   end
@@ -1056,7 +1086,12 @@ defmodule SymphonyElixir.Orchestrator do
           issue_url: Map.get(retry_entry, :issue_url),
           error: Map.get(retry_entry, :error),
           worker_host: Map.get(retry_entry, :worker_host),
-          workspace_path: Map.get(retry_entry, :workspace_path)
+          workspace_path: Map.get(retry_entry, :workspace_path),
+          session_id: Map.get(retry_entry, :session_id),
+          last_codex_timestamp: Map.get(retry_entry, :last_codex_timestamp),
+          last_codex_message: Map.get(retry_entry, :last_codex_message),
+          last_codex_event: Map.get(retry_entry, :last_codex_event),
+          codex_events: Map.get(retry_entry, :codex_events, [])
         }
 
         {:ok, attempt, metadata, %{state | retry_attempts: Map.delete(state.retry_attempts, issue_id)}}
@@ -1219,6 +1254,17 @@ defmodule SymphonyElixir.Orchestrator do
     metadata[:workspace_path] || Map.get(previous_retry, :workspace_path)
   end
 
+  defp pick_retry_value(previous_retry, metadata, key) do
+    Map.get(metadata, key) || Map.get(previous_retry, key)
+  end
+
+  defp pick_retry_codex_events(previous_retry, metadata) do
+    case metadata[:codex_events] || Map.get(previous_retry, :codex_events) do
+      events when is_list(events) -> events
+      _ -> []
+    end
+  end
+
   defp maybe_put_runtime_value(running_entry, _key, nil), do: running_entry
 
   defp maybe_put_runtime_value(running_entry, key, value) when is_map(running_entry) do
@@ -1378,6 +1424,7 @@ defmodule SymphonyElixir.Orchestrator do
           last_codex_timestamp: metadata.last_codex_timestamp,
           last_codex_message: metadata.last_codex_message,
           last_codex_event: metadata.last_codex_event,
+          codex_events: Map.get(metadata, :codex_events, []),
           runtime_seconds: running_seconds(metadata.started_at, now)
         }
       end)
@@ -1393,7 +1440,12 @@ defmodule SymphonyElixir.Orchestrator do
           issue_url: Map.get(retry, :issue_url),
           error: Map.get(retry, :error),
           worker_host: Map.get(retry, :worker_host),
-          workspace_path: Map.get(retry, :workspace_path)
+          workspace_path: Map.get(retry, :workspace_path),
+          session_id: Map.get(retry, :session_id),
+          last_codex_timestamp: Map.get(retry, :last_codex_timestamp),
+          last_codex_message: Map.get(retry, :last_codex_message),
+          last_codex_event: Map.get(retry, :last_codex_event),
+          codex_events: Map.get(retry, :codex_events, [])
         }
       end)
 
@@ -1412,7 +1464,8 @@ defmodule SymphonyElixir.Orchestrator do
           blocked_at: Map.get(metadata, :blocked_at),
           last_codex_timestamp: Map.get(metadata, :last_codex_timestamp),
           last_codex_message: Map.get(metadata, :last_codex_message),
-          last_codex_event: Map.get(metadata, :last_codex_event)
+          last_codex_event: Map.get(metadata, :last_codex_event),
+          codex_events: Map.get(metadata, :codex_events, [])
         }
       end)
 
@@ -1469,6 +1522,7 @@ defmodule SymphonyElixir.Orchestrator do
         last_codex_message: summarize_codex_update(update),
         session_id: session_id_for_update(running_entry.session_id, update),
         last_codex_event: event,
+        codex_events: EventLog.append(Map.get(running_entry, :codex_events, []), update),
         codex_app_server_pid: codex_app_server_pid_for_update(codex_app_server_pid, update),
         codex_input_tokens: codex_input_tokens + token_delta.input_tokens,
         codex_output_tokens: codex_output_tokens + token_delta.output_tokens,
