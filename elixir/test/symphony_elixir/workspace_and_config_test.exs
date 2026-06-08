@@ -453,6 +453,7 @@ defmodule SymphonyElixir.WorkspaceAndConfigTest do
     assert Issue.base_branch_from_description("基准分支: release/cn") == "release/cn"
     assert Issue.base_branch_from_description("Base branch: $(rm -rf /)") == nil
     assert Issue.base_branch_from_description("No branch here") == nil
+    assert Issue.normalize_base_branch(nil) == nil
   end
 
   test "linear client marks explicitly unassigned issues as not routed to worker" do

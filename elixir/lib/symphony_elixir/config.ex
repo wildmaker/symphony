@@ -153,22 +153,21 @@ defmodule SymphonyElixir.Config do
   @spec codex_runtime_settings(Path.t() | nil, keyword()) ::
           {:ok, codex_runtime_settings()} | {:error, term()}
   def codex_runtime_settings(workspace \\ nil, opts \\ []) do
-    with {:ok, settings} <- settings() do
-      with {:ok, turn_sandbox_policy} <-
-             Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
-        agent_config =
-          case Keyword.get(opts, :issue) do
-            %Issue{} = issue -> agent_config_for_issue(issue)
-            _ -> settings.codex
-          end
+    with {:ok, settings} <- settings(),
+         {:ok, turn_sandbox_policy} <-
+           Schema.resolve_runtime_turn_sandbox_policy(settings, workspace, opts) do
+      agent_config =
+        case Keyword.get(opts, :issue) do
+          %Issue{} = issue -> agent_config_for_issue(issue)
+          _ -> settings.codex
+        end
 
-        {:ok,
-         %{
-           approval_policy: agent_config.approval_policy,
-           thread_sandbox: agent_config.thread_sandbox,
-           turn_sandbox_policy: turn_sandbox_policy
-         }}
-      end
+      {:ok,
+       %{
+         approval_policy: agent_config.approval_policy,
+         thread_sandbox: agent_config.thread_sandbox,
+         turn_sandbox_policy: turn_sandbox_policy
+       }}
     end
   end
 

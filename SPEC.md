@@ -1468,6 +1468,8 @@ Enablement (extension):
 - Host a human-readable dashboard at `/`.
 - The returned document SHOULD depict the current state of the system (for example active sessions,
   retry delays, token consumption, runtime totals, recent events, and health/error indicators).
+- Implementations MAY expose issue/session detail pages such as `/sessions/<issue_identifier>` for
+  live, human-readable agent output.
 - It is up to the implementation whether this is server-generated HTML or a client-side app that
   consumes the JSON API below.
 
@@ -1563,9 +1565,10 @@ Minimum endpoints:
       "logs": {
         "codex_session_logs": [
           {
-            "label": "latest",
-            "path": "/var/log/symphony/codex/MT-649/latest.log",
-            "url": null
+            "at": "2026-02-24T20:14:59Z",
+            "event": "notification",
+            "message": "agent message streaming: Working on tests",
+            "raw": {}
           }
         ]
       },
@@ -1583,6 +1586,29 @@ Minimum endpoints:
 
   - If the issue is unknown to the current in-memory state, return `404` with an error response (for
     example `{\"error\":{\"code\":\"issue_not_found\",\"message\":\"...\"}}`).
+
+- `GET /api/v1/<issue_identifier>/events`
+  - Returns the current in-memory Codex event timeline for the identified issue.
+  - Implementations SHOULD bound timeline retention and SHOULD redact obvious secrets before
+    returning human-readable or raw event content.
+  - Suggested response shape:
+
+    ```json
+    {
+      "issue_identifier": "MT-649",
+      "issue_id": "abc123",
+      "status": "running",
+      "generated_at": "2026-02-24T20:15:30Z",
+      "events": [
+        {
+          "at": "2026-02-24T20:14:59Z",
+          "event": "notification",
+          "message": "command output streaming",
+          "raw": {}
+        }
+      ]
+    }
+    ```
 
 - `POST /api/v1/refresh`
   - Queues an immediate tracker poll + reconciliation cycle (best-effort trigger; implementations
