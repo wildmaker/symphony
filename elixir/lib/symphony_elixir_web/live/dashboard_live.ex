@@ -280,7 +280,9 @@ defmodule SymphonyElixirWeb.DashboardLive do
                         </span>
                       </div>
                     </td>
-                    <td><%= entry.error || "n/a" %></td>
+                    <td>
+                      <.error_detail error={entry.error} />
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -300,7 +302,13 @@ defmodule SymphonyElixirWeb.DashboardLive do
             <p class="empty-state">No issues are currently backing off.</p>
           <% else %>
             <div class="table-wrap">
-              <table class="data-table" style="min-width: 680px;">
+              <table class="data-table data-table-retry">
+                <colgroup>
+                  <col style="width: 7rem;" />
+                  <col style="width: 6rem;" />
+                  <col style="width: 12rem;" />
+                  <col />
+                </colgroup>
                 <thead>
                   <tr>
                     <th>Issue</th>
@@ -320,7 +328,9 @@ defmodule SymphonyElixirWeb.DashboardLive do
                     </td>
                     <td><%= entry.attempt %></td>
                     <td class="mono"><%= entry.due_at || "n/a" %></td>
-                    <td><%= entry.error || "n/a" %></td>
+                    <td>
+                      <.error_detail error={entry.error} />
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -379,6 +389,117 @@ defmodule SymphonyElixirWeb.DashboardLive do
   end
 
   defp external_issue_url(_url), do: nil
+
+  attr(:error, :any, default: nil)
+
+  defp error_detail(assigns) do
+    assigns = assign(assigns, :details, error_details(assigns.error))
+
+    ~H"""
+    <%= if @details do %>
+      <div class="error-detail">
+        <p class="error-summary"><%= @details.summary %></p>
+
+        <div :if={@details.lines != []} class="error-lines">
+          <p :for={line <- @details.lines} class={error_line_class(line)}>
+            <span class="error-line-text"><%= line %></span>
+          </p>
+        </div>
+
+        <p :if={@details.truncated?} class="error-truncated">
+          Showing first <%= @details.line_limit %> lines.
+        </p>
+
+        <details :if={@details.raw != @details.normalized} class="raw-error-details">
+          <summary>Raw error</summary>
+          <pre class="error-raw"><%= @details.raw %></pre>
+        </details>
+      </div>
+    <% else %>
+      <span class="muted">n/a</span>
+    <% end %>
+    """
+  end
+
+  defp error_details(nil), do: nil
+
+  defp error_details(error) do
+    raw = error |> to_string() |> String.trim()
+
+    if raw == "" do
+      nil
+    else
+      normalized = normalize_error_text(raw)
+      all_lines = error_lines(normalized)
+      line_limit = 10
+      display_lines = all_lines |> Enum.drop(1) |> Enum.take(line_limit)
+
+      %{
+        raw: raw,
+        normalized: normalized,
+        summary: error_summary(all_lines, normalized),
+        lines: display_lines,
+        line_limit: line_limit,
+        truncated?: length(all_lines) > line_limit + 1
+      }
+    end
+  end
+
+  defp normalize_error_text(text) do
+    text
+    |> String.replace("\\r\\n", "\n")
+    |> String.replace("\\n", "\n")
+    |> String.replace("\\t", "  ")
+    |> String.replace(~s(\\"), ~s("))
+    |> String.replace("\r\n", "\n")
+    |> String.replace("\r", "\n")
+    |> String.trim()
+  end
+
+  defp error_lines(text) do
+    text
+    |> String.split("\n")
+    |> Enum.map(&clean_error_line/1)
+    |> Enum.reject(&(&1 == ""))
+    |> Enum.reject(&structural_error_line?/1)
+  end
+
+  defp clean_error_line(line) do
+    line
+    |> String.replace(~r/[ \t]+/u, " ")
+    |> String.trim()
+  end
+
+  defp structural_error_line?(line) do
+    String.match?(line, ~r/^[\\"'\{\}\[\]\(\),\s]+$/u)
+  end
+
+  defp error_summary([], normalized), do: truncate_error_line(normalized, 260)
+
+  defp error_summary([line | _lines], _normalized) do
+    line
+    |> String.replace(~r/^agent exited:\s*/i, "Agent exited: ")
+    |> truncate_error_line(260)
+  end
+
+  defp truncate_error_line(line, max_length) do
+    if String.length(line) > max_length do
+      String.slice(line, 0, max_length - 3) <> "..."
+    else
+      line
+    end
+  end
+
+  defp error_line_class(line) do
+    base = "error-line"
+    normalized = String.downcase(line)
+
+    cond do
+      String.contains?(normalized, ["fatal", "error", "failed"]) -> "#{base} error-line-danger"
+      String.contains?(normalized, "warning") -> "#{base} error-line-warning"
+      true -> base
+    end
+  end
 
   defp completed_runtime_seconds(payload) do
     payload.codex_totals.seconds_running || 0

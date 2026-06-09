@@ -8,6 +8,7 @@ defmodule SymphonyElixir.ExtensionsTest do
   alias SymphonyElixir.Tracker.Memory
 
   @endpoint SymphonyElixirWeb.Endpoint
+  @retry_error ~S(agent exited: {%RuntimeError{message: "Agent run failed for issue_identifier=MT-RETRY: {:workspace_hook_failed, \"before_run\", 1, \"Workspace is incomplete; rerunning bootstrap before agent start.\nwarning: cannot find remote branch test/workflow-dsl-ingest.\nfatal: remote branch test/workflow-dsl-ingest not found upstream origin\n\"}"}})
 
   defmodule FakeLinearClient do
     def fetch_candidate_issues do
@@ -367,7 +368,7 @@ defmodule SymphonyElixir.ExtensionsTest do
                  "issue_url" => "https://example.org/issues/MT-RETRY",
                  "attempt" => 2,
                  "due_at" => state_payload["retrying"] |> List.first() |> Map.fetch!("due_at"),
-                 "error" => "boom",
+                 "error" => @retry_error,
                  "worker_host" => nil,
                  "workspace_path" => nil
                }
@@ -474,7 +475,7 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     conn = get(build_conn(), "/api/v1/MT-RETRY")
 
-    assert %{"status" => "retrying", "retry" => %{"attempt" => 2, "error" => "boom"}} =
+    assert %{"status" => "retrying", "retry" => %{"attempt" => 2, "error" => @retry_error}} =
              json_response(conn, 200)
 
     conn = get(build_conn(), "/api/v1/MT-BLOCKED")
@@ -625,6 +626,11 @@ defmodule SymphonyElixir.ExtensionsTest do
     assert html =~ ~s(aria-label="Open MT-HTTP in the issue tracker")
     assert html =~ "rendered"
     assert html =~ "turn blocked: waiting for user input"
+    assert html =~ ~s(class="error-detail")
+    assert html =~ "Workspace is incomplete; rerunning bootstrap before agent start."
+    assert html =~ "warning: cannot find remote branch test/workflow-dsl-ingest."
+    assert html =~ "fatal: remote branch test/workflow-dsl-ingest not found upstream origin"
+    assert html =~ "Raw error"
     assert html =~ "Runtime"
     assert html =~ "Live"
     assert html =~ "Offline"
@@ -818,7 +824,7 @@ defmodule SymphonyElixir.ExtensionsTest do
           issue_url: "https://example.org/issues/MT-RETRY",
           attempt: 2,
           due_in_ms: 2_000,
-          error: "boom"
+          error: @retry_error
         }
       ],
       blocked: [
