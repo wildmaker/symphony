@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Symphony Linear Codex Labels",
+  "version": "0.4.6",
+  "description": "Adds Codex-style model and reasoning controls to Linear's issue creation dialog using existing labels.",
+  "permissions": ["storage", "clipboardRead"],
+  "host_permissions": ["https://api.linear.app/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Symphony Codex Defaults",
+    "default_popup": "popup.html"
+  },
+  "content_scripts": [
+    {
+      "matches": ["https://linear.app/*", "https://*.linear.app/*"],
+      "js": ["content.js"],
+      "css": ["content.css"],
+      "run_at": "document_idle"
+    }
+  ]
+}

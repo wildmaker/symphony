@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Symphony Codex Defaults</title>
+    <link rel="stylesheet" href="popup.css">
+  </head>
+  <body>
+    <main class="popup">
+      <header>
+        <h1>Codex 默认值</h1>
+        <p>用于 Linear 自建创建器。</p>
+      </header>
+
+      <form id="settingsForm" class="settings-form">
+        <label class="field">
+          <span>Linear API Key</span>
+          <input id="apiKey" type="password" placeholder="lin_api_..." autocomplete="off">
+        </label>
+
+        <label class="field">
+          <span>模型</span>
+          <select id="model"></select>
+        </label>
+
+        <label class="field">
+          <span>推理强度</span>
+          <select id="reasoning"></select>
+        </label>
+
+        <button id="saveButton" type="submit">保存并测试</button>
+        <p id="status" class="status">修改后点击保存</p>
+      </form>
+    </main>
+
+    <script src="popup.js"></script>
+  </body>
+</html>
