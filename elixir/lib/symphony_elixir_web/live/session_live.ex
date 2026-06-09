@@ -116,8 +116,8 @@ defmodule SymphonyElixirWeb.SessionLive do
         <section class="section-card">
           <div class="section-header">
             <div>
-              <h2 class="section-title">Codex Output</h2>
-              <p class="section-copy">Recent events are bounded in memory and redacted before display.</p>
+              <h2 class="section-title">Codex Transcript</h2>
+              <p class="section-copy">Assistant messages and command output reconstructed from recent Codex events.</p>
             </div>
           </div>
 
@@ -126,29 +126,35 @@ defmodule SymphonyElixirWeb.SessionLive do
           <% else %>
             <div class="codex-stream">
               <article :for={block <- codex_blocks(@payload)} class={stream_block_class(block)}>
-                <div class="codex-stream-avatar"><%= stream_avatar(block) %></div>
                 <div class="codex-stream-body">
-                  <header class="codex-stream-header">
-                    <span class="codex-stream-title"><%= block.title %></span>
-                    <span class="mono muted numeric"><%= block.at || "n/a" %></span>
-                    <span :if={block.event_count > 1} class="codex-stream-count">
-                      <%= block.event_count %> events
-                    </span>
-                  </header>
-
                   <%= if block.kind == :assistant do %>
+                    <header class="codex-stream-header">
+                      <span class="codex-stream-title">assistant</span>
+                    </header>
                     <div class="codex-message"><%= block.text %></div>
                   <% else %>
-                    <details class="codex-tool-details">
-                      <summary><%= stream_summary(block) %></summary>
-                      <pre class="codex-tool-output"><%= block.text %></pre>
-                    </details>
+                    <%= if block.kind == :tool do %>
+                      <div class="codex-command-line">
+                        <span class="codex-command-prompt">$</span>
+                        <code><%= command_text(block) %></code>
+                      </div>
+
+                      <pre :if={has_output?(block)} class="codex-tool-output"><%= block.text %></pre>
+                    <% else %>
+                      <details class="codex-tool-details">
+                        <summary><%= stream_summary(block) %></summary>
+                        <pre class="codex-tool-output"><%= block.text %></pre>
+                      </details>
+                    <% end %>
                   <% end %>
 
-                  <details class="raw-event-details">
-                    <summary>Raw JSON</summary>
-                    <pre class="code-panel"><%= pretty_value(block.raw_events) %></pre>
-                  </details>
+                  <div class="codex-stream-debug">
+                    <span class="codex-stream-meta"><%= stream_meta(block) %></span>
+                    <details class="raw-event-details">
+                      <summary>Raw JSON</summary>
+                      <pre class="code-panel"><%= pretty_value(block.raw_events) %></pre>
+                    </details>
+                  </div>
                 </div>
               </article>
             </div>
@@ -184,15 +190,34 @@ defmodule SymphonyElixirWeb.SessionLive do
 
   defp stream_block_class(%{kind: kind}), do: "codex-stream-block codex-stream-block-#{kind}"
 
-  defp stream_avatar(%{kind: :assistant}), do: "AI"
-  defp stream_avatar(%{kind: :tool}), do: "$"
-  defp stream_avatar(%{kind: :reasoning}), do: "..."
-  defp stream_avatar(_block), do: "i"
+  defp command_text(%{command: command}) when is_binary(command), do: command
 
-  defp stream_summary(%{kind: :tool, title: title}), do: title
-  defp stream_summary(%{kind: :reasoning}), do: "Reasoning update"
+  defp command_text(%{title: "$ " <> command}), do: command
+  defp command_text(%{title: title}), do: title
+
+  defp has_output?(%{text: text}) when is_binary(text), do: String.trim(text) != ""
+  defp has_output?(_block), do: false
+
+  defp stream_meta(block) do
+    parts =
+      []
+      |> append_meta(block.at)
+      |> append_meta(event_count_label(block.event_count))
+
+    Enum.join(parts, " · ")
+  end
+
+  defp append_meta(parts, nil), do: parts
+  defp append_meta(parts, ""), do: parts
+  defp append_meta(parts, value), do: parts ++ [value]
+
+  defp event_count_label(count) when is_integer(count) and count > 1, do: "#{count} events"
+  defp event_count_label(_count), do: nil
+
+  defp stream_summary(%{kind: :tool} = block), do: "$ #{command_text(block)}"
+  defp stream_summary(%{kind: :reasoning}), do: "reasoning"
   defp stream_summary(%{kind: :activity, title: title}), do: title
-  defp stream_summary(_block), do: "Details"
+  defp stream_summary(_block), do: "details"
 
   defp session_id(%{running: %{session_id: session_id}}), do: session_id
   defp session_id(%{retry: %{session_id: session_id}}), do: session_id

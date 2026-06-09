@@ -96,6 +96,33 @@ defmodule SymphonyElixir.CodexSessionStreamTest do
            ] = SessionStream.blocks(events)
   end
 
+  test "blocks keeps command text separate from command output" do
+    events = [
+      item_event("2026-06-09T03:55:29Z", "item/started", %{
+        "id" => "call_git_status",
+        "type" => "commandExecution",
+        "command" => "git status --short"
+      }),
+      item_event("2026-06-09T03:55:30Z", "item/completed", %{
+        "id" => "call_git_status",
+        "type" => "commandExecution",
+        "command" => "git status --short",
+        "aggregatedOutput" => nil
+      })
+    ]
+
+    assert [
+             %{
+               kind: :tool,
+               title: "$ git status --short",
+               command: "git status --short",
+               text: "",
+               event_count: 2,
+               completed?: true
+             }
+           ] = SessionStream.blocks(events)
+  end
+
   test "blocks falls back to activity when no streamable events are present" do
     assert [
              %{
@@ -129,13 +156,17 @@ defmodule SymphonyElixir.CodexSessionStreamTest do
   end
 
   defp completed_event(at, item) do
+    item_event(at, "item/completed", item)
+  end
+
+  defp item_event(at, method, item) do
     %{
       at: at,
       event: "notification",
-      message: "item completed",
+      message: method,
       raw: %{
         payload: %{
-          "method" => "item/completed",
+          "method" => method,
           "params" => %{"item" => item}
         }
       }
