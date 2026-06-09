@@ -5,16 +5,25 @@ defmodule SymphonyElixir.CodexSessionStreamTest do
 
   test "blocks merges assistant deltas and folds command output separately" do
     events = [
-      event("2026-06-09T03:55:29Z", "codex/event/agent_message_content_delta", %{"content" => "Hello "}),
-      event("2026-06-09T03:55:30Z", "codex/event/agent_message_content_delta", %{"content" => "world"}),
+      event("2026-06-09T03:55:29Z", "codex/event/agent_message_content_delta", %{
+        "content" => "Hello ",
+        "itemId" => "msg_1"
+      }),
+      event("2026-06-09T03:55:30Z", "codex/event/agent_message_content_delta", %{
+        "content" => "world",
+        "itemId" => "msg_1"
+      }),
       event("2026-06-09T03:55:31Z", "item/commandExecution/outputDelta", %{
-        "outputDelta" => "mix test\n"
+        "outputDelta" => "mix test\n",
+        "itemId" => "call_1"
       }),
       event("2026-06-09T03:55:32Z", "item/commandExecution/outputDelta", %{
-        "outputDelta" => "2 tests, 0 failures\n"
+        "outputDelta" => "2 tests, 0 failures\n",
+        "itemId" => "call_1"
       }),
       event("2026-06-09T03:55:33Z", "codex/event/agent_message_content_delta", %{
-        "content" => "Done."
+        "content" => "Done.",
+        "itemId" => "msg_2"
       })
     ]
 
@@ -36,6 +45,53 @@ defmodule SymphonyElixir.CodexSessionStreamTest do
                title: "Assistant",
                text: "Done.",
                event_count: 1
+             }
+           ] = SessionStream.blocks(events)
+  end
+
+  test "blocks appends stream deltas exactly without injecting line breaks" do
+    events = [
+      event("2026-06-09T03:55:29Z", "item/agentMessage/delta", %{
+        "delta" => "I",
+        "itemId" => "msg_split"
+      }),
+      event("2026-06-09T03:55:29Z", "item/agentMessage/delta", %{
+        "delta" => "'m rer",
+        "itemId" => "msg_split"
+      }),
+      event("2026-06-09T03:55:29Z", "item/agentMessage/delta", %{
+        "delta" => "unning",
+        "itemId" => "msg_split"
+      })
+    ]
+
+    assert [%{kind: :assistant, text: "I'm rerunning", event_count: 3}] =
+             SessionStream.blocks(events)
+  end
+
+  test "blocks prefers completed assistant text over streamed deltas for the same item" do
+    events = [
+      event("2026-06-09T03:55:29Z", "item/agentMessage/delta", %{
+        "delta" => "target branch",
+        "itemId" => "msg_completed"
+      }),
+      event("2026-06-09T03:55:29Z", "item/agentMessage/delta", %{
+        "delta" => "'s new coverage",
+        "itemId" => "msg_completed"
+      }),
+      completed_event("2026-06-09T03:55:30Z", %{
+        "id" => "msg_completed",
+        "type" => "agentMessage",
+        "text" => "target branch's new coverage"
+      })
+    ]
+
+    assert [
+             %{
+               kind: :assistant,
+               text: "target branch's new coverage",
+               event_count: 3,
+               completed?: true
              }
            ] = SessionStream.blocks(events)
   end
@@ -67,6 +123,20 @@ defmodule SymphonyElixir.CodexSessionStreamTest do
         payload: %{
           "method" => method,
           "params" => %{"msg" => params}
+        }
+      }
+    }
+  end
+
+  defp completed_event(at, item) do
+    %{
+      at: at,
+      event: "notification",
+      message: "item completed",
+      raw: %{
+        payload: %{
+          "method" => "item/completed",
+          "params" => %{"item" => item}
         }
       }
     }

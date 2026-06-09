@@ -38,7 +38,9 @@ defmodule SymphonyElixir.Codex.SessionStream do
           required(:text) => String.t(),
           required(:at) => term(),
           required(:event_count) => non_neg_integer(),
-          required(:raw_events) => [map()]
+          required(:raw_events) => [map()],
+          optional(:stream_id) => String.t(),
+          optional(:completed?) => boolean()
         }
 
   @spec blocks([map()] | nil) :: [block()]
@@ -75,6 +77,9 @@ defmodule SymphonyElixir.Codex.SessionStream do
       tool_method?(method) ->
         tool_event(event, payload, method)
 
+      completed_item_kind(payload) in [:assistant, :tool] ->
+        completed_item_event(event, payload, completed_item_kind(payload))
+
       important_activity?(event) ->
         activity_event(event)
 
@@ -91,7 +96,7 @@ defmodule SymphonyElixir.Codex.SessionStream do
         activity_event(event)
 
       text ->
-        [new_block(event, kind, title, text)]
+        [new_block(event, kind, title, text, stream_id(payload))]
     end
   end
 
@@ -104,7 +109,7 @@ defmodule SymphonyElixir.Codex.SessionStream do
 
     case text do
       value when is_binary(value) and value != "" ->
-        [new_block(event, :tool, tool_title(payload, method), value)]
+        [new_block(event, :tool, tool_title(payload, method), value, stream_id(payload))]
 
       _ ->
         activity_event(event)
@@ -123,17 +128,51 @@ defmodule SymphonyElixir.Codex.SessionStream do
 
   defp activity_event(_event), do: []
 
+  defp completed_item_event(event, payload, :assistant) do
+    case extract_completed_item_text(payload) do
+      text when is_binary(text) and text != "" ->
+        [new_block(event, :assistant, "Assistant", text, stream_id(payload), completed?: true)]
+
+      _ ->
+        activity_event(event)
+    end
+  end
+
+  defp completed_item_event(event, payload, :tool) do
+    item = completed_item(payload)
+    text = map_value(item, ["aggregatedOutput", :aggregatedOutput]) || extract_command(item)
+
+    case normalize_text(text) do
+      nil ->
+        activity_event(event)
+
+      value ->
+        [new_block(event, :tool, completed_tool_title(item), value, stream_id(payload), completed?: true)]
+    end
+  end
+
   defp append_block(block, []) do
     [block]
   end
 
   defp append_block(block, [last | rest] = blocks) do
-    if mergeable?(last, block) do
-      [merge_blocks(last, block) | rest]
-    else
-      [block | blocks]
+    cond do
+      mergeable?(last, block) ->
+        [merge_blocks(last, block) | rest]
+
+      completed_stream_block?(block) ->
+        merge_completed_stream_block(block, blocks)
+
+      true ->
+        [block | blocks]
     end
   end
+
+  defp mergeable?(%{stream_id: stream_id}, %{stream_id: stream_id}) when is_binary(stream_id), do: true
+
+  defp mergeable?(%{stream_id: _left}, %{stream_id: _right}), do: false
+  defp mergeable?(%{stream_id: _left}, _block), do: false
+  defp mergeable?(_last, %{stream_id: _right}), do: false
 
   defp mergeable?(%{kind: :assistant}, %{kind: :assistant}), do: true
   defp mergeable?(%{kind: :reasoning}, %{kind: :reasoning}), do: true
@@ -144,15 +183,41 @@ defmodule SymphonyElixir.Codex.SessionStream do
   defp merge_blocks(last, block) do
     %{
       last
-      | text: append_text(last.text, block.text),
+      | title: completed_title(last, block),
+        text: merge_text(last, block),
+        at: block.at || last.at,
         event_count: last.event_count + block.event_count,
         raw_events: last.raw_events ++ block.raw_events
     }
+    |> maybe_put_completed(completed?: Map.get(block, :completed?, false) || Map.get(last, :completed?, false))
   end
 
-  defp append_text("", next), do: truncate_text(next)
+  defp completed_title(last, %{completed?: true, title: title}), do: title || last.title
+  defp completed_title(last, _block), do: last.title
 
-  defp append_text(existing, next) do
+  defp merge_text(_last, %{completed?: true, text: text}), do: truncate_text(text)
+  defp merge_text(%{kind: kind, text: existing}, %{text: next}), do: append_text(kind, existing, next)
+
+  defp completed_stream_block?(%{completed?: true, stream_id: stream_id}) when is_binary(stream_id), do: true
+  defp completed_stream_block?(_block), do: false
+
+  defp merge_completed_stream_block(block, blocks) do
+    case Enum.split_while(blocks, &(Map.get(&1, :stream_id) != block.stream_id)) do
+      {prefix, [matched | suffix]} ->
+        prefix ++ [merge_blocks(matched, block) | suffix]
+
+      {_prefix, []} ->
+        [block | blocks]
+    end
+  end
+
+  defp append_text(_kind, "", next), do: truncate_text(next)
+
+  defp append_text(kind, existing, next) when kind in [:assistant, :reasoning, :tool] do
+    truncate_text(existing <> next)
+  end
+
+  defp append_text(_kind, existing, next) do
     separator = if String.ends_with?(existing, ["\n", " "]) or String.starts_with?(next, ["\n", " "]), do: "", else: "\n"
     truncate_text(existing <> separator <> next)
   end
@@ -165,8 +230,8 @@ defmodule SymphonyElixir.Codex.SessionStream do
 
   defp truncate_text(value), do: value
 
-  defp new_block(event, kind, title, text) do
-    %{
+  defp new_block(event, kind, title, text, stream_id \\ nil, opts \\ []) do
+    block = %{
       kind: kind,
       title: title,
       text: truncate_text(text),
@@ -174,6 +239,19 @@ defmodule SymphonyElixir.Codex.SessionStream do
       event_count: 1,
       raw_events: [raw_event(event)]
     }
+
+    block
+    |> maybe_put_stream_id(stream_id)
+    |> maybe_put_completed(opts)
+  end
+
+  defp maybe_put_stream_id(block, stream_id) when is_binary(stream_id) and stream_id != "",
+    do: Map.put(block, :stream_id, stream_id)
+
+  defp maybe_put_stream_id(block, _stream_id), do: block
+
+  defp maybe_put_completed(block, opts) do
+    if Keyword.get(opts, :completed?, false), do: Map.put(block, :completed?, true), else: block
   end
 
   defp payload_for_event(event) do
@@ -217,6 +295,37 @@ defmodule SymphonyElixir.Codex.SessionStream do
   defp method_for_payload(%{} = payload), do: map_value(payload, ["method", :method])
   defp method_for_payload(_payload), do: nil
 
+  defp completed_item_kind(payload) do
+    case {method_for_payload(payload), map_value(completed_item(payload), ["type", :type])} do
+      {"item/completed", "agentMessage"} -> :assistant
+      {"item/completed", "commandExecution"} -> :tool
+      {"item/completed", "fileChange"} -> :tool
+      _other -> nil
+    end
+  end
+
+  defp completed_item(payload), do: map_value(payload, ["params", :params]) |> map_value(["item", :item])
+
+  defp extract_completed_item_text(payload) do
+    payload
+    |> completed_item()
+    |> map_value(["text", :text])
+    |> normalize_text()
+  end
+
+  defp stream_id(payload) do
+    first_path(payload, [
+      ["params", "itemId"],
+      [:params, :itemId],
+      ["params", "item", "id"],
+      [:params, :item, :id],
+      ["params", "msg", "itemId"],
+      [:params, :msg, :itemId],
+      ["params", "msg", "payload", "itemId"],
+      [:params, :msg, :payload, :itemId]
+    ])
+  end
+
   defp extract_text(payload) do
     payload
     |> first_path(text_paths())
@@ -256,6 +365,13 @@ defmodule SymphonyElixir.Codex.SessionStream do
 
       true ->
         "Tool output"
+    end
+  end
+
+  defp completed_tool_title(item) do
+    case extract_command(item) do
+      nil -> "Command output"
+      command -> "$ #{command}"
     end
   end
 
@@ -391,7 +507,15 @@ defmodule SymphonyElixir.Codex.SessionStream do
       ["params", "args"],
       [:params, :args],
       ["params", "msg", "command"],
-      [:params, :msg, :command]
+      [:params, :msg, :command],
+      ["command"],
+      [:command],
+      ["cmd"],
+      [:cmd],
+      ["argv"],
+      [:argv],
+      ["args"],
+      [:args]
     ]
   end
 end
