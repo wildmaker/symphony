@@ -174,7 +174,7 @@ routing:
     use-cursor: cursor
 ```
 
-### Per-issue model override
+### Per-issue Codex overrides
 
 Add a `model-*` label to a Linear ticket to override the `--model` flag for
 that issue without changing the global config or defining a new agent:
@@ -182,11 +182,28 @@ that issue without changing the global config or defining a new agent:
 - Label `model-o3-pro` → agent runs with `--model o3-pro`
 - Label `model-gpt-5.3-codex` → agent runs with `--model gpt-5.3-codex`
 
+Common Codex model labels include `model-gpt-5.3-codex`,
+`model-gpt-5.3-codex-spark`, `model-gpt-5.4`, `model-gpt-5.4-mini`, and
+`model-gpt-5.5`.
+
 If the base command already has `--model`, the value is replaced. If it has
 no `--model` flag, one is injected before `app-server`; commands without an
 `app-server` token receive `--model <model>` at the end. This composes with
 multi-agent routing: the agent is selected first, then the model override is
 applied to that agent's command.
+
+Add a `reasoning-*` label to override Codex reasoning effort for the ticket:
+
+- Label `reasoning-minimal` → agent runs with `--config model_reasoning_effort=minimal`
+- Label `reasoning-low` → agent runs with `--config model_reasoning_effort=low`
+- Label `reasoning-medium` → agent runs with `--config model_reasoning_effort=medium`
+- Label `reasoning-high` → agent runs with `--config model_reasoning_effort=high`
+- Label `reasoning-xhigh` → agent runs with `--config model_reasoning_effort=xhigh`
+
+If the base command already has `--config model_reasoning_effort=<value>` or
+`-c model_reasoning_effort=<value>`, the value is replaced. If it does not,
+the config override is injected before `app-server`; commands without an
+`app-server` token receive the override at the end.
 
 ### Hooks
 

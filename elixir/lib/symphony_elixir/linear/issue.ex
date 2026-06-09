@@ -6,6 +6,8 @@ defmodule SymphonyElixir.Linear.Issue do
   require Logger
 
   @model_label_prefix "model-"
+  @reasoning_effort_label_prefix "reasoning-"
+  @allowed_reasoning_efforts ~w(minimal low medium high xhigh)
   @base_branch_line ~r/^\s*(?:[-*]\s*)?(?:\*\*)?(?:base[\s_-]+branch|基准分支)(?:\*\*)?\s*[:=]\s*`?([^`\s#]+)`?/i
 
   defstruct [
@@ -62,6 +64,21 @@ defmodule SymphonyElixir.Linear.Issue do
     end
   end
 
+  @spec reasoning_effort_override(t()) :: String.t() | nil
+  def reasoning_effort_override(%__MODULE__{labels: labels}) do
+    labels
+    |> Enum.map(&reasoning_effort_from_label/1)
+    |> Enum.reject(&is_nil/1)
+    |> case do
+      [] ->
+        nil
+
+      [effort | rest] ->
+        if rest != [], do: Logger.warning("Multiple reasoning-* labels found on issue; using first: #{effort}")
+        effort
+    end
+  end
+
   @spec base_branch_from_description(String.t() | nil) :: String.t() | nil
   def base_branch_from_description(description) when is_binary(description) do
     description
@@ -90,6 +107,13 @@ defmodule SymphonyElixir.Linear.Issue do
   end
 
   def normalize_base_branch(_branch), do: nil
+
+  defp reasoning_effort_from_label(@reasoning_effort_label_prefix <> effort) do
+    effort = String.downcase(effort)
+    if effort in @allowed_reasoning_efforts, do: effort, else: nil
+  end
+
+  defp reasoning_effort_from_label(_label), do: nil
 
   defp valid_base_branch?(branch) when is_binary(branch) do
     byte_size(branch) in 1..255 and

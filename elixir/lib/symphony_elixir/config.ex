@@ -96,7 +96,9 @@ defmodule SymphonyElixir.Config do
         name -> Map.get(settings.agents, name, settings.codex)
       end
 
-    apply_model_override(base_config, issue)
+    base_config
+    |> apply_model_override(issue)
+    |> apply_reasoning_effort_override(issue)
   end
 
   defp apply_model_override(agent_config, issue) do
@@ -111,6 +113,18 @@ defmodule SymphonyElixir.Config do
     end
   end
 
+  defp apply_reasoning_effort_override(agent_config, issue) do
+    case Issue.reasoning_effort_override(issue) do
+      nil ->
+        agent_config
+
+      effort ->
+        updated_command = codex_command_with_reasoning_effort(agent_config.command, effort)
+        Logger.info("Reasoning effort override from label: effort=#{effort} issue_identifier=#{issue.identifier}")
+        %{agent_config | command: updated_command}
+    end
+  end
+
   defp codex_command_with_model(base_command, model) do
     cond do
       Regex.match?(~r/--model\s+\S+/, base_command) ->
@@ -121,6 +135,25 @@ defmodule SymphonyElixir.Config do
 
       true ->
         "#{base_command} --model #{model}"
+    end
+  end
+
+  defp codex_command_with_reasoning_effort(base_command, effort) do
+    reasoning_config = "model_reasoning_effort=#{effort}"
+
+    cond do
+      Regex.match?(~r/(--config|-c)\s+model_reasoning_effort=(?:"[^"]*"|'[^']*'|\S+)/, base_command) ->
+        Regex.replace(
+          ~r/(--config|-c)\s+model_reasoning_effort=(?:"[^"]*"|'[^']*'|\S+)/,
+          base_command,
+          "\\1 #{reasoning_config}"
+        )
+
+      Regex.match?(~r/(?<!\S)app-server(?!\S)/, base_command) ->
+        Regex.replace(~r/(?<!\S)app-server(?!\S)/, base_command, "--config #{reasoning_config} app-server", global: false)
+
+      true ->
+        "#{base_command} --config #{reasoning_config}"
     end
   end
 

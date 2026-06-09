@@ -1988,6 +1988,51 @@ defmodule SymphonyElixir.CoreTest do
     assert log =~ "Multiple model-* labels"
   end
 
+  test "Issue.reasoning_effort_override extracts supported reasoning labels" do
+    for effort <- ~w(minimal low medium high xhigh) do
+      issue = %Issue{
+        id: "issue-reasoning-#{effort}",
+        identifier: "MT-404R",
+        title: "Reasoning override",
+        state: "Todo",
+        labels: ["backend", "reasoning-#{effort}"]
+      }
+
+      assert Issue.reasoning_effort_override(issue) == effort
+    end
+  end
+
+  test "Issue.reasoning_effort_override ignores unsupported reasoning labels" do
+    issue = %Issue{
+      id: "issue-invalid-reasoning",
+      identifier: "MT-404I",
+      title: "Invalid reasoning override",
+      state: "Todo",
+      labels: ["reasoning-ultra", "backend"]
+    }
+
+    assert Issue.reasoning_effort_override(issue) == nil
+  end
+
+  test "Issue.reasoning_effort_override uses first supported reasoning label when multiple present" do
+    import ExUnit.CaptureLog
+
+    issue = %Issue{
+      id: "issue-multi-reasoning",
+      identifier: "MT-404M",
+      title: "Multiple reasoning labels",
+      state: "Todo",
+      labels: ["reasoning-high", "reasoning-low"]
+    }
+
+    log =
+      capture_log(fn ->
+        assert Issue.reasoning_effort_override(issue) == "high"
+      end)
+
+    assert log =~ "Multiple reasoning-* labels"
+  end
+
   test "agent_config_for_issue applies model-* label override to command" do
     write_workflow_file!(Workflow.workflow_file_path(),
       codex_command: "codex --model gpt-5.3-codex app-server"
@@ -2107,6 +2152,59 @@ defmodule SymphonyElixir.CoreTest do
 
     agent_config = Config.agent_config_for_issue(issue)
     assert agent_config.command == "/usr/local/bin/app-server-launcher --model o3-pro app-server"
+  end
+
+  test "agent_config_for_issue injects reasoning effort before app-server" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      codex_command: "codex app-server"
+    )
+
+    issue = %Issue{
+      id: "issue-reasoning-inject",
+      identifier: "MT-411",
+      title: "Reasoning inject via label",
+      state: "Todo",
+      labels: ["reasoning-high"]
+    }
+
+    agent_config = Config.agent_config_for_issue(issue)
+    assert agent_config.command == "codex --config model_reasoning_effort=high app-server"
+  end
+
+  test "agent_config_for_issue replaces existing reasoning effort config" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      codex_command: "codex --config shell_environment_policy.inherit=all --config model_reasoning_effort=xhigh app-server"
+    )
+
+    issue = %Issue{
+      id: "issue-reasoning-replace",
+      identifier: "MT-412",
+      title: "Reasoning replace via label",
+      state: "Todo",
+      labels: ["reasoning-low"]
+    }
+
+    agent_config = Config.agent_config_for_issue(issue)
+
+    assert agent_config.command ==
+             "codex --config shell_environment_policy.inherit=all --config model_reasoning_effort=low app-server"
+  end
+
+  test "agent_config_for_issue composes model and reasoning labels" do
+    write_workflow_file!(Workflow.workflow_file_path(),
+      codex_command: "codex app-server"
+    )
+
+    issue = %Issue{
+      id: "issue-model-reasoning",
+      identifier: "MT-413",
+      title: "Model and reasoning override",
+      state: "Todo",
+      labels: ["model-gpt-5.3-codex", "reasoning-xhigh"]
+    }
+
+    agent_config = Config.agent_config_for_issue(issue)
+    assert agent_config.command == "codex --model gpt-5.3-codex --config model_reasoning_effort=xhigh app-server"
   end
 
   test "app server startup payload uses configurable approval and sandbox settings from workflow config" do
