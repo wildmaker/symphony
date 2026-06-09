@@ -666,6 +666,38 @@ defmodule SymphonyElixir.ExtensionsTest do
               }
             }
           },
+          codex_events: [
+            %{
+              at: DateTime.utc_now(),
+              event: :notification,
+              message: "agent message content streaming: structured update",
+              raw: %{
+                event: :notification,
+                payload: %{
+                  "method" => "codex/event/agent_message_content_delta",
+                  "params" => %{
+                    "msg" => %{
+                      "content" => "structured update"
+                    }
+                  }
+                }
+              }
+            },
+            %{
+              at: DateTime.utc_now(),
+              event: :notification,
+              message: "command output streaming: mix test --failed",
+              raw: %{
+                event: :notification,
+                payload: %{
+                  "method" => "item/commandExecution/outputDelta",
+                  "params" => %{
+                    "outputDelta" => "mix test --failed\n"
+                  }
+                }
+              }
+            }
+          ],
           last_codex_timestamp: DateTime.utc_now(),
           codex_input_tokens: 10,
           codex_output_tokens: 12,
@@ -688,7 +720,11 @@ defmodule SymphonyElixir.ExtensionsTest do
 
     {:ok, _session_view, session_html} = live(build_conn(), "/sessions/MT-HTTP")
     assert session_html =~ "Codex Session"
-    assert session_html =~ "agent message content streaming: structured update"
+    assert session_html =~ "codex-stream-block-assistant"
+    assert session_html =~ "structured update"
+    assert session_html =~ "Command output"
+    assert session_html =~ "mix test --failed"
+    refute session_html =~ "agent message content streaming: structured update"
     assert session_html =~ "Raw JSON"
     assert session_html =~ ~s(href="/api/v1/MT-HTTP/events")
     refute session_html =~ "linear-secret-token"

@@ -5,6 +5,7 @@ defmodule SymphonyElixirWeb.SessionLive do
 
   use Phoenix.LiveView, layout: {SymphonyElixirWeb.Layouts, :app}
 
+  alias SymphonyElixir.Codex.SessionStream
   alias SymphonyElixirWeb.{Endpoint, ObservabilityPubSub, Presenter}
 
   @impl true
@@ -120,25 +121,37 @@ defmodule SymphonyElixirWeb.SessionLive do
             </div>
           </div>
 
-          <%= if codex_events(@payload) == [] do %>
+          <%= if codex_blocks(@payload) == [] do %>
             <p class="empty-state">No Codex events captured for this issue yet.</p>
           <% else %>
-            <ol class="timeline-list">
-              <li :for={event <- codex_events(@payload)} class="timeline-item">
-                <div class="timeline-marker"></div>
-                <div class="timeline-body">
-                  <div class="timeline-meta">
-                    <span class="state-badge"><%= event.event || "event" %></span>
-                    <span class="mono muted numeric"><%= event.at || "n/a" %></span>
-                  </div>
-                  <p class="timeline-message"><%= event.message || "n/a" %></p>
+            <div class="codex-stream">
+              <article :for={block <- codex_blocks(@payload)} class={stream_block_class(block)}>
+                <div class="codex-stream-avatar"><%= stream_avatar(block) %></div>
+                <div class="codex-stream-body">
+                  <header class="codex-stream-header">
+                    <span class="codex-stream-title"><%= block.title %></span>
+                    <span class="mono muted numeric"><%= block.at || "n/a" %></span>
+                    <span :if={block.event_count > 1} class="codex-stream-count">
+                      <%= block.event_count %> events
+                    </span>
+                  </header>
+
+                  <%= if block.kind == :assistant do %>
+                    <div class="codex-message"><%= block.text %></div>
+                  <% else %>
+                    <details class="codex-tool-details">
+                      <summary><%= stream_summary(block) %></summary>
+                      <pre class="codex-tool-output"><%= block.text %></pre>
+                    </details>
+                  <% end %>
+
                   <details class="raw-event-details">
                     <summary>Raw JSON</summary>
-                    <pre class="code-panel"><%= pretty_value(raw_event(event)) %></pre>
+                    <pre class="code-panel"><%= pretty_value(block.raw_events) %></pre>
                   </details>
                 </div>
-              </li>
-            </ol>
+              </article>
+            </div>
           <% end %>
         </section>
       <% end %>
@@ -167,7 +180,19 @@ defmodule SymphonyElixirWeb.SessionLive do
     end
   end
 
-  defp raw_event(event), do: Map.get(event, :raw, %{})
+  defp codex_blocks(payload), do: payload |> codex_events() |> SessionStream.blocks()
+
+  defp stream_block_class(%{kind: kind}), do: "codex-stream-block codex-stream-block-#{kind}"
+
+  defp stream_avatar(%{kind: :assistant}), do: "AI"
+  defp stream_avatar(%{kind: :tool}), do: "$"
+  defp stream_avatar(%{kind: :reasoning}), do: "..."
+  defp stream_avatar(_block), do: "i"
+
+  defp stream_summary(%{kind: :tool, title: title}), do: title
+  defp stream_summary(%{kind: :reasoning}), do: "Reasoning update"
+  defp stream_summary(%{kind: :activity, title: title}), do: title
+  defp stream_summary(_block), do: "Details"
 
   defp session_id(%{running: %{session_id: session_id}}), do: session_id
   defp session_id(%{retry: %{session_id: session_id}}), do: session_id
